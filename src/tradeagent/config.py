@@ -48,8 +48,41 @@ class TradingViewConfig(_Section):
     cdp_host: str = "127.0.0.1"
     cdp_port: int = Field(default=9222, ge=1, le=65535)
     app_id: str
+    launcher: str = "scripts/launch_tradingview_debug.ps1"
+    catalog: str = "config/indicators.yaml"
     signal_version: int = Field(ge=1)
+    min_bars: int = Field(default=1500, ge=300, le=10_000)
+    read_delay_s: float = Field(default=3.0, ge=0, le=60)
+    prepare_timeout_s: float = Field(default=30.0, ge=5, le=300)
+    stuck_reload_after_s: float = Field(default=240.0, ge=30)
     layouts: dict[str, str] = Field(min_length=1)
+
+    @field_validator("layouts")
+    @classmethod
+    def _has_htf(cls, value: dict[str, str]) -> dict[str, str]:
+        if "AGENT-HTF" not in value:
+            raise ValueError("layouts must include AGENT-HTF")
+        return value
+
+
+class MarketDataConfig(_Section):
+    history_days: int = Field(default=35, ge=1, le=365)
+    candle_timeframes: list[str] = Field(default_factory=lambda: ["1m", "5m", "15m"])
+
+    @field_validator("candle_timeframes")
+    @classmethod
+    def _known(cls, value: list[str]) -> list[str]:
+        unknown = [tf for tf in value if tf not in KNOWN_TIMEFRAMES]
+        if unknown:
+            raise ValueError(f"unknown timeframes {unknown}")
+        if "1m" not in value:
+            raise ValueError("1m candles are required to track shadow trades")
+        return value
+
+
+class ShadowConfig(_Section):
+    setups: str = "config/setups.yaml"
+    max_hold_hours: float = Field(default=72, gt=0, le=24 * 30)
 
 
 class CostsConfig(_Section):
@@ -106,6 +139,8 @@ class Settings(_Section):
     exchange: ExchangeConfig
     timeframes: TimeframesConfig
     tradingview: TradingViewConfig
+    market_data: MarketDataConfig = Field(default_factory=MarketDataConfig)
+    shadow: ShadowConfig = Field(default_factory=ShadowConfig)
     costs: CostsConfig
     paper_account: PaperAccountConfig
     goal: GoalConfig
@@ -114,6 +149,28 @@ class Settings(_Section):
 
     _root: Path = PrivateAttr(default_factory=Path.cwd)
     _secrets: Secrets = PrivateAttr(default_factory=Secrets)
+
+    @model_validator(mode="after")
+    def _layout_per_symbol(self) -> Settings:
+        missing = [f"AGENT-{coin}" for coin in self.exchange.symbols if f"AGENT-{coin}" not in self.tradingview.layouts]
+        if missing:
+            raise ValueError(f"tradingview.layouts is missing {missing}")
+        untracked = [tf for tf in self.timeframes.trade if tf not in self.market_data.candle_timeframes]
+        if untracked:
+            raise ValueError(f"market_data.candle_timeframes must include the trading timeframes {untracked}")
+        return self
+
+    def layout_for(self, coin: str) -> str:
+        """Layout id of the chart tab that shows `coin` on the trading timeframes."""
+        return self.tradingview.layouts[f"AGENT-{coin}"]
+
+    @property
+    def htf_layout(self) -> str:
+        return self.tradingview.layouts["AGENT-HTF"]
+
+    @property
+    def all_timeframes(self) -> list[str]:
+        return list(dict.fromkeys(self.timeframes.trade + self.timeframes.overview))
 
     @property
     def root(self) -> Path:

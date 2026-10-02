@@ -32,7 +32,7 @@ The YouTube strategies (4H range, Q-Trend + Klinger, Zero Lag) are references on
 
 | Topic | Decision |
 |---|---|
-| Signal source | TradingView Desktop (Essential plan), read through the TradingView MCP (`tradingview-mcp-jackson`) |
+| Signal source | TradingView Desktop (Essential plan), read by the agent over CDP (the TradingView MCP is optional, for research sessions) |
 | Webhook alerts | Not used. The agent reads the chart directly. Alerts may be added later only as a backup. |
 | Indicators | Max 5 per chart (Essential limit): Q-Trend, Klinger, VWAP, AlgoAlpha Zero Lag Signals, ATP MACD Signal System |
 | Indicator settings | Signal Version 1, verified on TradingView. Full list in [TRADINGVIEW-SETUP.md](TRADINGVIEW-SETUP.md). Q-Trend: ATR period 32, EMA smoother 10. Klinger (everget): fast 38, slow 60, histogram. Zero Lag: length 70, multiplier 1.2. ATP MACD: Custom 12/26/9, No Filter. VWAP: Session, bands 1 and 2. |
@@ -137,3 +137,6 @@ The YouTube strategies (4H range, Q-Trend + Klinger, Zero Lag) are references on
 | 2026-10-02 | TradingView Essential set up and verified as Signal Version 1 (4 AGENT layouts, Scalp/Trend templates). ATP MACD uses Custom 12/26/9 with No Filter. |
 | 2026-10-02 | Everything runs on the user's PC for now. The user will move it to the VPS later, setting it up himself with Claude's instructions. |
 | 2026-10-02 | Phase 0 complete. The agent talks to TradingView Desktop directly from Python over CDP. Node.js and the MCP server are optional, used only for Claude Code research sessions. |
+| 2026-10-02 | Phase 1 built. Signals are read from the scripts' alert-condition plots (0/1 flags, independent of display settings). Values come from the closed candle in the internal series. Every chart keeps ≥ 1500 bars of history. The catalog lives in config/indicators.yaml. |
+| 2026-10-02 | Phase 2 built. Binance candles (1m/5m/15m), funding and market info are stored in the journal. Setup rules live in config/setups.yaml: baseline v0 plus 16 variants that each change one thing. Snapshots for the history already loaded in TradingView were backfilled, so results started before the live run; coverage counts only live reads. |
+| 2026-10-02 | Phase 3 built. The paper account follows the baseline's exploration trades with the same fills, so its R is identical. A second position is sized down to the free margin (10x isolated) instead of being skipped. The daily loss stop counts realized losses and only blocks new entries. A newly promoted baseline is followed from its promotion on. |

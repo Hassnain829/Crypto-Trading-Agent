@@ -18,12 +18,26 @@ tradingview:
   cdp_host: 127.0.0.1
   cdp_port: 9222
   app_id: "TradingView.Desktop_n534cwy3pjxzj!TradingView.Desktop"
+  launcher: scripts/launch_tradingview_debug.ps1
+  catalog: config/indicators.yaml  # which indicator plots the agent reads
   signal_version: 1              # see docs/TRADINGVIEW-SETUP.md
+  min_bars: 1500                 # history kept loaded on every chart (indicator warm-up)
+  read_delay_s: 3                # read this many seconds after a candle closes
+  prepare_timeout_s: 30          # max wait for a chart to become ready
+  stuck_reload_after_s: 240      # reload a tab whose chart stays in "loading" this long
   layouts:                       # saved layout name -> layout id (from the chart URL)
     AGENT-XRP: "K7xX5RYP"
     AGENT-LINK: "CztsiO1R"
     AGENT-SOL: "NZPfFmj0"
     AGENT-HTF: "9yUw9zox"
+
+market_data:                     # Binance candles used to track shadow trades (never for indicators)
+  history_days: 35
+  candle_timeframes: ["1m", "5m", "15m"]
+
+shadow:
+  setups: config/setups.yaml     # baseline rules and the variants tested beside it
+  max_hold_hours: 72             # close a shadow trade that is still open after this long
 
 costs:                           # Binance VIP0 USDT-M; check your own account
   maker_fee: 0.0002

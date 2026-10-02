@@ -15,7 +15,7 @@ def test_migrate_creates_schema_in_wal_mode(conn):
     assert db.schema_version(conn) == db.LATEST_VERSION
     assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
     tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
-    assert {"events", "settings", "settings_audit"} <= tables
+    assert {"events", "settings", "settings_audit", "snapshots", "indicator_settings"} <= tables
 
 
 def test_migrate_twice_applies_nothing_the_second_time(conn):

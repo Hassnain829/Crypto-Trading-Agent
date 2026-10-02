@@ -19,7 +19,7 @@ from tradeagent.tv.cdp import CDPError, TradingViewCDP
 
 log = logging.getLogger("tradeagent.doctor")
 
-REQUIRED_PACKAGES = ("aiohttp", "ccxt", "numpy", "pandas", "pydantic", "python-dotenv", "pyyaml")
+REQUIRED_PACKAGES = ("aiohttp", "ccxt", "numpy", "pandas", "psutil", "pydantic", "python-dotenv", "pyyaml")
 LAUNCH_HINT = r"Start TradingView with: powershell -ExecutionPolicy Bypass -File scripts\launch_tradingview_debug.ps1"
 
 SAVED_LAYOUTS_JS = """
@@ -77,6 +77,24 @@ def check_config(settings: Settings) -> CheckResult:
         f"signal version {settings.tradingview.signal_version}"
     )
     return CheckResult("Config", Status.OK, detail)
+
+
+def check_catalog(settings: Settings) -> CheckResult:
+    from tradeagent.tv.catalog import load_catalog
+
+    path = settings.resolve(settings.tradingview.catalog)
+    try:
+        catalog = load_catalog(path)
+    except Exception as exc:  # missing file, YAML error or validation error
+        return CheckResult("Catalog", Status.FAIL, f"{path}: {' '.join(str(exc).split())[:200]}")
+    if catalog.signal_version != settings.tradingview.signal_version:
+        return CheckResult(
+            "Catalog",
+            Status.WARN,
+            f"catalog is for signal version {catalog.signal_version}, settings say {settings.tradingview.signal_version}",
+        )
+    fields = sum(len(ind.fields) for ind in catalog.indicators.values())
+    return CheckResult("Catalog", Status.OK, f"{len(catalog.indicators)} indicators, {fields} fields")
 
 
 def check_secrets(settings: Settings) -> CheckResult:
@@ -219,7 +237,14 @@ def check_node() -> CheckResult:
 
 
 def run_checks(settings: Settings, *, offline: bool = False) -> list[CheckResult]:
-    results = [check_python(), check_packages(), check_config(settings), check_secrets(settings), check_journal(settings)]
+    results = [
+        check_python(),
+        check_packages(),
+        check_config(settings),
+        check_catalog(settings),
+        check_secrets(settings),
+        check_journal(settings),
+    ]
     if offline:
         results.append(CheckResult("Binance API", Status.WARN, "skipped (--offline)"))
     else:

@@ -91,9 +91,9 @@ The older `SCALP_` template was deleted on 2026-10-02 because it no longer match
 | Signal Filter Mode | No Filter |
 | Show Divergences | true (pivot 5/5: divergences are confirmed 5 bars late) |
 
-## 4. Data-window fields (input for the Phase 1 output catalog)
+## 4. Data-window fields (for checking by hand)
 
-Read live through the Chrome DevTools Protocol on 2026-10-02. These values belong to the **forming** candle. Phase 1 must read the last **closed** candle instead.
+The agent reads exact plot ids from [config/indicators.yaml](../config/indicators.yaml) on the **closed** candle. Signals come from the scripts' alert-condition plots. The names below are what TradingView's data window shows, so you can compare by hand.
 
 | Indicator | Fields |
 |---|---|
@@ -122,4 +122,8 @@ Read live through the Chrome DevTools Protocol on 2026-10-02. These values belon
   | `getSaveChartService()._renameController._doSaveCurrentLayout(name)` | Rename and save the layout |
   | `getSaveChartService()._saveAsController._doCloneCurrentLayout(name)` | Save the layout as a new copy |
 - **Careful with `setInputValues`.** Passing the full input array back made `getInputValues()` return an empty list for ATP MACD, although the study kept its values and kept calculating. Prefer setting single properties: `inputs.childs()[id].setValue(v)`.
+- **Study data rows** (`dataSourceForId(id).data().valueAt(i)`) are `[time, plot_0, plot_1, …]` and align with the candle index. Alert-condition plots hold 0/1 flags. Phase 1 reads these.
+- **History:** TradingView loads only 300 bars per chart. `mainSeries().requestMoreData(n)` loads more, but only while the series is ready (`_status.value().seriesStatus === 3` and `!isLoading()`).
+- **Never call `mainSeries().loadDataTo(<timestamp>)`.** It expects a time-frame object; with a timestamp the series got stuck loading until the tab was reloaded (`location.reload()`).
+- **Opening a saved layout in a new tab:** `TradingViewApi.loadLayoutFromServerByLayoutId(id, true)`. It creates no new layout (Essential allows 5).
 - **Node.js** is not installed on the PC yet.

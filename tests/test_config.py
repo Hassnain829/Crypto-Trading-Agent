@@ -33,6 +33,7 @@ def test_relative_paths_start_at_project_root(repo_root):
         ("paper_account", "max_positions_per_coin", 3),  # more than max_positions
         ("timeframes", "trade", ["7m"]),  # unknown timeframe
         ("costs", "taker_fe", 0.0005),  # typo in a key name
+        ("tradingview", "min_bars", 100),  # too little history for the indicators
     ],
 )
 def test_invalid_values_are_rejected(repo_root, section, key, value):
@@ -40,6 +41,21 @@ def test_invalid_values_are_rejected(repo_root, section, key, value):
     raw[section][key] = value
     with pytest.raises(ValidationError):
         Settings.model_validate(raw)
+
+
+@pytest.mark.parametrize("layout", ["AGENT-HTF", "AGENT-SOL"])
+def test_every_coin_and_the_htf_need_a_layout(repo_root, layout):
+    raw = _raw(repo_root)
+    del raw["tradingview"]["layouts"][layout]
+    with pytest.raises(ValidationError):
+        Settings.model_validate(raw)
+
+
+def test_layout_helpers(repo_root):
+    s = load_settings(repo_root)
+    assert s.layout_for("XRP") == "K7xX5RYP"
+    assert s.htf_layout == "9yUw9zox"
+    assert s.all_timeframes == ["5m", "15m", "1h", "4h"]
 
 
 def test_secrets_come_from_env_file_and_stay_hidden(tmp_path, repo_root, monkeypatch):

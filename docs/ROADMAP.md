@@ -13,7 +13,7 @@
 | 6 | [Live trading](phases/phase-6-live-trading.md) | Small live account on Binance | Go-live gate + your approval | 2–4 weeks of monitored trading |
 | 7 | [Scale and improve](phases/phase-7-scale-and-improve.md) | More coins, setups and features | 6 | Ongoing |
 
-**Status (2026-10-02):** Phase 0 complete. Next: Phase 1.
+**Status (2026-10-02):** Phase 0 complete. Phases 1, 2 and 3 built. One `agent` run covers their remaining runtime tests: 48 hours (Phase 1) and 7 days (Phases 2 and 3).
 
 Times are estimates. Building is fast; collecting enough shadow trades is the real clock. The earliest realistic live start is about 6–8 weeks after Phase 0, and only if the go-live gate is met.
 
@@ -29,7 +29,7 @@ Times are estimates. Building is fast; collecting enough shadow trades is the re
 
 ## Critical path
 
-Buy TradingView Essential → Phase 0 → **Phase 1 (riskiest: reading closed candles through the MCP)** → Phase 2 (data collection starts) → Phases 3 + 4 → Phase 5 → go-live gate → Phase 6
+Buy TradingView Essential → Phase 0 → **Phase 1 (riskiest: reading closed candles from TradingView)** → Phase 2 (data collection starts) → Phases 3 + 4 → Phase 5 → go-live gate → Phase 6
 
 ## Why this order
 
@@ -42,7 +42,7 @@ Buy TradingView Essential → Phase 0 → **Phase 1 (riskiest: reading closed ca
 
 | When | Question | Options |
 |---|---|---|
-| End of Phase 1 | Is MCP reading reliable enough? | Continue / Pine "combiner" table / backup alerts |
+| End of Phase 1 | Is CDP reading reliable enough? | Continue / Pine "combiner" table / backup alerts |
 | End of Phase 2 | Does the baseline produce enough trades? | Adjust triggers / add timeframes |
 | During Phase 5 | Is the paper account moving toward the gate? | Keep researching / change setups |
 | Gate met | Start live trading? | Your approval in the dashboard |

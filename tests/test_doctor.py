@@ -37,6 +37,12 @@ def test_journal_check_creates_database_and_leaves_no_rows(settings):
         conn.close()
 
 
+def test_catalog_check(settings, tmp_path):
+    assert doctor.check_catalog(settings).status is Status.OK
+    settings.tradingview.catalog = str(tmp_path / "missing.yaml")
+    assert doctor.check_catalog(settings).status is Status.FAIL
+
+
 def test_tradingview_unreachable_points_to_the_launcher(settings):
     settings.tradingview.cdp_port = _free_port()
     result = doctor.check_tradingview(settings)

@@ -1,0 +1,61 @@
+# Indicator output catalog: which TradingView plots the agent reads.
+# Signal Version 1 (docs/TRADINGVIEW-SETUP.md). If a TradingView or script update renames or
+# moves a plot, the reader reports a title mismatch instead of reading wrong values.
+#
+# kind: value -> a number (null when the indicator draws nothing on that bar)
+#       flag  -> 1 when the condition is true on that bar, else 0 (from the script's alert conditions,
+#                which do not depend on display settings)
+signal_version: 1
+
+indicators:
+  qtrend:
+    study: "Q-Trend"
+    fields:
+      trend_line:  {plot: plot_0,  title: "trend line",         kind: value}
+      buy:         {plot: plot_19, title: "Q-Trend BUY",        kind: flag}   # normal or strong
+      sell:        {plot: plot_20, title: "Q-Trend SELL",       kind: flag}
+      strong_buy:  {plot: plot_22, title: "Strong BUY signal",  kind: flag}
+      strong_sell: {plot: plot_23, title: "Strong SELL signal", kind: flag}
+
+  klinger:
+    study: "Klinger Volume Oscillator"
+    fields:
+      hist:   {plot: plot_0, title: "Histogram", kind: value}   # >= 0 is green (buy volume)
+      kvo:    {plot: plot_2, title: "KVO",       kind: value}
+      signal: {plot: plot_4, title: "Signal",    kind: value}
+
+  vwap:
+    study: "Volume-weighted average price"
+    fields:
+      vwap:   {plot: plot_0, title: "VWAP",          kind: value}
+      upper1: {plot: plot_1, title: "Upper Band #1", kind: value}
+      lower1: {plot: plot_2, title: "Lower Band #1", kind: value}
+      upper2: {plot: plot_3, title: "Upper Band #2", kind: value}
+      lower2: {plot: plot_4, title: "Lower Band #2", kind: value}
+
+  zerolag:
+    study: "Zero Lag Trend Signals (MTF) [AlgoAlpha]"
+    fields:
+      basis:         {plot: plot_0,  title: "Zero Lag Basis",       kind: value}
+      upper_band:    {plot: plot_2,  title: "Upper Deviation Band", kind: value}  # only in a bearish trend
+      lower_band:    {plot: plot_4,  title: "Lower Deviation Band", kind: value}  # only in a bullish trend
+      bullish_entry: {plot: plot_24, title: "Bullish Entry Signal", kind: flag}
+      bearish_entry: {plot: plot_25, title: "Bearish Entry Signal", kind: flag}
+      bullish_trend: {plot: plot_26, title: "Bullish Trend",        kind: flag}   # trend flip
+      bearish_trend: {plot: plot_27, title: "Bearish Trend",        kind: flag}
+
+  atp_macd:
+    study: "ATP MACD Signal System"
+    fields:
+      hist:               {plot: plot_1,  title: "Histogram",               kind: value}
+      macd:               {plot: plot_3,  title: "MACD Line",               kind: value}
+      signal:             {plot: plot_5,  title: "Signal Line",             kind: value}
+      buy:                {plot: plot_18, title: "MACD Buy Signal",         kind: flag}
+      sell:               {plot: plot_19, title: "MACD Sell Signal",        kind: flag}
+      bullish_divergence: {plot: plot_22, title: "MACD Bullish Divergence", kind: flag}   # confirmed 5 bars late
+      bearish_divergence: {plot: plot_23, title: "MACD Bearish Divergence", kind: flag}
+
+# Which indicators each chart template carries.
+templates:
+  scalp: [qtrend, klinger, vwap, zerolag, atp_macd]   # trading timeframes (5m, 15m)
+  trend: [qtrend, zerolag]                            # overview timeframes (1h, 4h)

@@ -1,0 +1,46 @@
+# Setup rules for the shadow engine (Phase 2).
+# "baseline" is V0, the first hypothesis (Q-Trend arrow confirmed by Klinger and the candle).
+# Every variant changes exactly ONE thing from the baseline. All of them run in parallel on the
+# same signals in the exploration book. Changing a variant's rules gives it a new id automatically.
+
+baseline:
+  timeframes: ["5m", "15m"]
+  trigger:
+    indicator: qtrend        # qtrend | zerolag
+    long: buy                # flag field (config/indicators.yaml) that starts a long setup
+    short: sell
+  confirmation:
+    window: 3                # candles after the trigger candle in which confirmation may come (0 = trigger candle only)
+    klinger: true            # Klinger histogram >= 0 for longs, < 0 for shorts
+    candle_direction: true   # bullish candle for longs, bearish candle for shorts
+  filters:
+    vwap: false              # longs only at/above VWAP, shorts only at/below
+    macd_trend: false        # longs only when the ATP MACD line > 0, shorts only when < 0
+    htf: none                # none | 1h | 1h+4h: the Zero Lag trend on those timeframes must agree
+    min_stop_pct: 0.0        # skip trades whose stop is closer than this % of the entry (fees)
+  stop:
+    lookback: 10             # lowest low (long) / highest high (short) of the last N candles, confirming candle included
+  exit:
+    mode: fixed              # fixed | hybrid | htf_rule (hybrid when 1h and 4h agree, otherwise fixed)
+    take_profit_r: 1.5
+    partial_r: 1.0           # hybrid: close part of the trade at this R
+    partial_fraction: 0.5
+    trail_lookback: 3        # hybrid: then trail behind the low/high of the last N closed candles
+
+variants:
+  tp_1r:            {exit: {take_profit_r: 1.0}}
+  tp_2r:            {exit: {take_profit_r: 2.0}}
+  exit_hybrid:      {exit: {mode: hybrid}}
+  exit_htf_rule:    {exit: {mode: htf_rule}}
+  confirm_0:        {confirmation: {window: 0}}
+  confirm_1:        {confirmation: {window: 1}}
+  confirm_2:        {confirmation: {window: 2}}
+  filter_vwap:      {filters: {vwap: true}}
+  filter_macd:      {filters: {macd_trend: true}}
+  filter_htf_1h:    {filters: {htf: "1h"}}
+  filter_htf_1h4h:  {filters: {htf: "1h+4h"}}
+  trigger_zl_flip:  {trigger: {indicator: zerolag, long: bullish_trend, short: bearish_trend}}
+  trigger_zl_entry: {trigger: {indicator: zerolag, long: bullish_entry, short: bearish_entry}}
+  stop_5:           {stop: {lookback: 5}}
+  stop_20:          {stop: {lookback: 20}}
+  min_stop_025:     {filters: {min_stop_pct: 0.25}}

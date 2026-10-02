@@ -3,6 +3,13 @@
 **Goal:** Turn every signal into shadow trades, with real Binance prices and all costs, for many variants in parallel.
 **Depends on:** [Phase 1](phase-1-tradingview-reader.md). **Estimated time:** about 1 week, including a 7-day run.
 
+> **Status (2026-10-02): built; the 7-day run is next.**
+> - Stored candles match Binance exactly.
+> - `verify-trades`: 20 of 20 random trades match an independent re-computation from raw candles.
+> - Restart test passed: replaying the history gave the same 2,433 trades with 0 duplicates. A second run added nothing.
+> - The full agent ran a live cycle: snapshots read, shadow step done, no errors.
+> - What remains: the 7-day run. One `agent` run covers it, together with the Phase 1 48-hour test and the Phase 3 run.
+
 ## Build tasks
 
 ### Market data (Binance public API, no keys)
@@ -14,7 +21,7 @@
 
 ### Setup engine
 
-Rules live in `config/setups/*.yaml`, not in code. A setup is: trigger → confirmation → filters → HTF context → stop → exit.
+Rules live in `config/setups.yaml`, not in code. A setup is: trigger → confirmation → filters → HTF context → stop → exit.
 
 **Baseline V0** (the first hypothesis, based on the Q-Trend + Klinger idea):
 
@@ -72,19 +79,60 @@ Rules live in `config/setups/*.yaml`, not in code. A setup is: trigger → confi
 - Catch-up: after downtime, missed candles are processed in order.
 - CLI report: trades and metrics per variant.
 
-## Deliverables
+## How it works (as built)
 
-- Market data service
-- Setup engine with YAML rules
-- Shadow simulator with all variants
-- Journal tables filled 24/7
+| Part | Implementation |
+|---|---|
+| Market data | `market/candles.py`: closed 1m/5m/15m candles, 35 days back, then only new ones. Gaps are found and repaired. Funding rates are stored too. Market info (tick size, step size, minimum order) is refreshed every hour. |
+| Server clock | `market/clock.py` measures the offset to Binance server time; candle closes are scheduled in server time |
+| Setup rules | `config/setups.yaml`: the baseline and 16 variants. A variant's id is its name plus a hash of its rules, so a rule change gets a new id automatically. Signal flags are checked against the catalog at start. |
+| Setup engine | `setups/engine.py` processes each coin and timeframe in candle order, one transaction per candle. `engine_state` remembers where it stopped. |
+| Entry timing | The engine waits until the Binance 1m entry candle has closed, so a trade is recorded one cycle after its signal. Its entry time and price stay correct. |
+| HTF context | Zero Lag trend of the newest closed 1h / 4h snapshot. Missing or stale data counts as no trend. |
+| Simulator | `sim/simulator.py`, pure logic: the rules above, plus a gap through the stop fills at the candle's open, and a 72-hour time limit |
+| Tracker | `sim/tracker.py` moves open trades forward on new 1m candles, 500 candles at a time |
+| Counterfactuals | Signals that a variant's filters reject are simulated with `taken = 0` |
+| History | `backfill-snapshots` stored snapshots for the history already loaded in TradingView (`source = backfill`). A live read replaces a backfilled row. Coverage counts only live reads. |
+| Independent check | `verify-trades` re-computes random closed trades from raw candles with separate code |
+| Journal | Migration 3: `candles`, `funding`, `market_info`, `variants`, `setups`, `trades`, `engine_state` |
+
+## Commands
+
+| Command | Use |
+|---|---|
+| `python -m tradeagent agent` | Run everything 24/7: reader, Binance data, setup engine, tracker and paper account (Ctrl+C to stop) |
+| `python -m tradeagent market-sync` | Sync Binance candles, funding and market info now |
+| `python -m tradeagent backfill-snapshots` | Store snapshots for the history loaded in TradingView. TradingView must run in debug mode, and the agent must be stopped, because this switches the HTF chart. |
+| `python -m tradeagent shadow-run` | Process new snapshots and move open trades forward once. Not needed while the agent runs, because it does this every cycle. |
+| `python -m tradeagent shadow-report` | Results per variant: closed, taken trades; R after fees, slippage and funding; counterfactuals |
+| `python -m tradeagent trades --variant v0 --last 20` | List trades. `--id N` shows one trade in detail. |
+| `python -m tradeagent verify-trades --count 20` | Re-compute random closed trades independently |
+| `python -m tradeagent shadow-reset --yes` | Delete exploration trades, and the paper account that follows them, so the history can be replayed |
+
+## First results (history backfill, 2026-09-19 to 10-02)
+
+The sample is small, so these are not conclusions yet.
+
+- **Baseline v0:** 135 closed trades, 40% wins, −0.115R per trade, profit factor 0.83. Fees cost 0.08R per trade.
+- **Best:** `stop_20` (−0.061R) and `confirm_0` (−0.094R).
+- **Worst:** `trigger_zl_entry` (−0.317R) and `tp_2r` (−0.221R).
+- **VWAP filter:** the signals it rejected averaged +0.104R (24 trades), so it removed winners.
+- **Overall:** no variant is positive yet. Phase 5 decides with more data and re-confirmation on fresh data.
 
 ## Exit criteria
 
 - [ ] 7 days of continuous running; ≥ 99% of candles processed
-- [ ] 20 random shadow trades checked by hand on TradingView: entry, stop, target and outcome correct
-- [ ] Restart test: stop the agent mid-run and start it again. No duplicates, and catch-up works.
-- [ ] Fees and slippage match the formulas in [GOALS-AND-METRICS.md](../GOALS-AND-METRICS.md)
+- [x] 20 random shadow trades checked. `verify-trades`: 20/20. An independent re-computation from raw candles replaced the hand check on TradingView. Candles match Binance exactly.
+- [x] Restart test: the same 2,433 trades after a replay, 0 duplicates, and catch-up works
+- [x] Fees and slippage match the formulas in [GOALS-AND-METRICS.md](../GOALS-AND-METRICS.md) (unit tests in `tests/test_simulator.py`)
+
+## Changes from the original plan
+
+- The rules are in one file, `config/setups.yaml`, instead of `config/setups/*.yaml`.
+- The 11 variables became 16 variants, one per tested value.
+- The history was backfilled from TradingView's loaded bars, so the first results came before the 7-day run.
+- A trade is recorded once its 1m entry candle has closed, normally in the next cycle. The simulated entry time and price do not change.
+- An independent re-computation (`verify-trades`) and the candle check against Binance replaced the hand check on TradingView.
 
 ## Risks
 
@@ -93,3 +141,4 @@ Rules live in `config/setups/*.yaml`, not in code. A setup is: trigger → confi
 | Too few signals | Add the Zero Lag entry-arrow trigger, or lower timeframes later |
 | Same-candle ambiguity hides real results | 1m resolution; count ambiguous trades in reports |
 | Many variants produce a lucky winner | Re-confirmation on fresh data ([Phase 5](phase-5-learning-loop.md)) |
+| Backfilled snapshots differ from live reads (repainting) | Live reads replace them; `repaint-audit` checks stored values; coverage counts only live reads |
