@@ -1,0 +1,56 @@
+# Crypt-AI-Trading settings.
+# Secrets (API keys) never go here; they live in .env (see .env.example).
+# All times are UTC.
+
+exchange:
+  name: binance
+  market_type: usdm              # Binance USDT-M perpetual futures
+  symbols:                       # agent name -> exchange (ccxt) and TradingView symbols
+    XRP:  {ccxt: "XRP/USDT:USDT",  tradingview: "BINANCE:XRPUSDT.P"}
+    LINK: {ccxt: "LINK/USDT:USDT", tradingview: "BINANCE:LINKUSDT.P"}
+    SOL:  {ccxt: "SOL/USDT:USDT",  tradingview: "BINANCE:SOLUSDT.P"}
+
+timeframes:
+  trade: ["5m", "15m"]           # signals and entries
+  overview: ["1h", "4h"]         # higher-timeframe context
+
+tradingview:
+  cdp_host: 127.0.0.1
+  cdp_port: 9222
+  app_id: "TradingView.Desktop_n534cwy3pjxzj!TradingView.Desktop"
+  signal_version: 1              # see docs/TRADINGVIEW-SETUP.md
+  layouts:                       # saved layout name -> layout id (from the chart URL)
+    AGENT-XRP: "K7xX5RYP"
+    AGENT-LINK: "CztsiO1R"
+    AGENT-SOL: "NZPfFmj0"
+    AGENT-HTF: "9yUw9zox"
+
+costs:                           # Binance VIP0 USDT-M; check your own account
+  maker_fee: 0.0002
+  taker_fee: 0.0005
+  slippage: 0.0002               # assumed per market fill
+
+paper_account:                   # live-like simulation, same rules as live
+  starting_balance: 150
+  risk_per_trade: 0.02           # 2% of the balance
+  max_positions: 2
+  max_positions_per_coin: 1
+  daily_loss_stop: 0.10          # 10% of the day's starting balance
+  leverage_cap: 10
+
+goal:                            # go-live gate (proposed; editable later in the dashboard)
+  min_trades: 150
+  min_days: 14
+  min_expectancy_r: 0.10
+  min_profit_factor: 1.3
+  max_drawdown: 0.15
+  min_snapshot_coverage: 0.99
+
+logging:
+  level: INFO
+  file: data/logs/agent.log
+  max_bytes: 5000000
+  backups: 5
+
+journal:
+  path: data/journal.db

@@ -1,0 +1,10 @@
+# Exact versions tested on 2026-10-02 (Python 3.14.6, Windows 10).
+# Install: python -m pip install -r requirements.txt -e .
+aiohttp==3.14.3
+ccxt==4.5.85
+numpy==2.5.3
+pandas==3.0.6
+pydantic==2.13.5
+python-dotenv==1.2.4
+pyyaml==6.0.3
+pytest==9.1.1
