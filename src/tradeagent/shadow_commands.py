@@ -217,7 +217,12 @@ def paper_report() -> int:
     win_rate = f"{r['win_rate'] * 100:.1f}%" if r["win_rate"] is not None else "-"
     exp = f"{r['expectancy_r']:+.3f}R" if r["expectancy_r"] is not None else "-"
     pf = f"{r['profit_factor']:.2f}" if r["profit_factor"] is not None else "-"
-    print("Paper account (baseline variant, live rules; PnL after fees, slippage and funding)")
+    pa = settings.paper_account
+    limits = [f"max {pa.max_positions} positions" if pa.max_positions else "",
+              f"{pa.max_positions_per_coin} per coin" if pa.max_positions_per_coin else "",
+              f"daily stop {pa.daily_loss_stop:.0%}" if pa.daily_loss_stop else ""]
+    rules = ", ".join(x for x in limits if x) or "no limits, every signal"
+    print(f"Paper account (baseline variant, {pa.risk_per_trade:.0%} risk, {rules}; PnL after fees, slippage and funding)")
     print(f"  balance        {r['balance']:.2f} USDT (start {r['starting_balance']:.2f}, {r['return_pct']:+.2f}%)")
     print(f"  equity         {r['equity']:.2f} USDT (open positions valued at the last price)")
     print(f"  closed trades  {r['closed']}  win rate {win_rate}  expectancy {exp}  profit factor {pf}")

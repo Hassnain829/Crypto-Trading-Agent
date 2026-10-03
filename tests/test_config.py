@@ -30,7 +30,7 @@ def test_relative_paths_start_at_project_root(repo_root):
     ("section", "key", "value"),
     [
         ("paper_account", "risk_per_trade", 0.5),  # more than 5% per trade
-        ("paper_account", "max_positions_per_coin", 3),  # more than max_positions
+        ("paper_account", "max_positions_per_coin", 0),  # a limit must be at least 1 (or null for none)
         ("timeframes", "trade", ["7m"]),  # unknown timeframe
         ("costs", "taker_fe", 0.0005),  # typo in a key name
         ("tradingview", "min_bars", 100),  # too little history for the indicators
@@ -83,3 +83,10 @@ def test_environment_variable_wins_over_env_file(tmp_path, repo_root, monkeypatc
 
     s = load_settings(tmp_path)
     assert s.secrets.binance_api_key.get_secret_value() == "from-env"
+
+
+def test_per_coin_limit_cannot_exceed_the_total(repo_root):
+    raw = _raw(repo_root)
+    raw["paper_account"].update(max_positions=2, max_positions_per_coin=3)
+    with pytest.raises(ValidationError):
+        Settings.model_validate(raw)

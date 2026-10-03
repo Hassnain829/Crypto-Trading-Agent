@@ -62,7 +62,7 @@
 | Section | Fields |
 |---|---|
 | Account | Paper starting balance |
-| Risk | Risk %, daily loss stop %, max positions, leverage cap |
+| Risk | Risk %, leverage cap. Demo: no limits by default. Live: max positions, per coin, daily loss stop % (set before going live). |
 | Markets | Coins on/off, timeframes on/off |
 | Setups | Baseline parameters (an edit creates a new variant version) |
 | Costs | Maker fee, taker fee, slippage |
@@ -72,6 +72,8 @@
 | Goal | Go-live gate thresholds |
 
 Every change is written to an audit log (time, field, old → new).
+
+**Live preview** (added 2026-10-03): when live limits are edited, the dashboard shows a replay of the forward baseline trades through those limits. It shows the result, the drawdown, trades per day and skipped signals, and the go-live gate's money checks use this replay.
 
 ### System
 

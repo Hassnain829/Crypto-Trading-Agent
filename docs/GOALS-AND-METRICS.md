@@ -7,10 +7,10 @@ The agent keeps three separate records. Each one answers a different question.
 | Book | Question it answers | Limits |
 |---|---|---|
 | Exploration | "What happens if we take every signal?" This is the training data. | None. Unlimited trades, no daily stop, no drawdown stop. It never pauses. |
-| Paper account | "What would my real account look like under live rules?" | Live rules: $150 start, 2% risk, max 2 positions, daily loss stop 10–12%. If it hits the daily stop, only the paper account pauses until the next day. |
-| Live | Real money on Binance (Phase 6) | Same rules as the paper account |
+| Paper account (demo) | "What would my money do if every baseline signal were traded?" | $150 start and 2% risk per trade, each position sized down to the free margin at 10x. Since 2026-10-03 there are no position limits and no daily stop (the user's choice). |
+| Live | Real money on Binance (Phase 6) | The same entries and exits as the paper account. The limits (max positions, daily loss stop 10–12%) are set in the dashboard before going live. |
 
-**Why losses never slow down training:** the paper account is a separate ledger on top of the same signals. When it pauses for the day, exploration keeps trading and recording. Goals and failure flags are used to decide things (promotion, go-live). They never stop data collection.
+**Why losses never slow down training:** the paper account and live trading are separate ledgers on top of the same signals. Limits and pauses there never stop exploration from trading and recording. Goals and failure flags are used to decide things (promotion, go-live). They never stop data collection.
 
 ## 2. Metric definitions
 
@@ -56,6 +56,8 @@ Live trading can start only when all of these are true. They are counted from th
 When all checks pass, the dashboard shows "Gate met". You still decide. The gate never turns live trading on by itself.
 
 Why the sample is the shadow trades: the paper account takes only about 2 of the ~6 daily signals because of its position limits, so 150 paper trades would take about 70 days. The shadow trades follow the same rules and fills, so they test the strategy faster (decided 2026-10-03: 100 trades in about 16–17 days). The paper account still shows what the money would have done.
+
+The paper account has no limits, so its drawdown is deeper than a limited live account's. On ~100 days of history, v2 with no limits made +59.5% with a 30% max drawdown; with 2 positions and a 10% daily stop it made +19.5% with 17.9%. Before going live, the dashboard will replay the forward trades with the chosen live limits (Phase 4). The 15% drawdown target applies to that replay.
 
 ## 5. Research flags (warnings, not brakes)
 

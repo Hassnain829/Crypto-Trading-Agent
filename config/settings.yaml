@@ -45,13 +45,13 @@ costs:                           # Binance VIP0 USDT-M; check your own account
   taker_fee: 0.0005
   slippage: 0.0002               # assumed per market fill
 
-paper_account:                   # live-like simulation, same rules as live
+paper_account:                   # demo account: takes every baseline signal (the user, 2026-10-03)
   starting_balance: 150
   risk_per_trade: 0.02           # 2% of the balance
-  max_positions: 2
-  max_positions_per_coin: 1
-  daily_loss_stop: 0.10          # 10% of the day's starting balance
-  leverage_cap: 10
+  max_positions: null            # null = no limit; live limits (e.g. 2) are set before going live
+  max_positions_per_coin: null   # null = no limit (live: e.g. 1)
+  daily_loss_stop: null          # null = off; live: 0.10-0.12 of the day's starting balance
+  leverage_cap: 10               # each position is sized down to the free margin at 10x
 
 goal:                            # go-live gate (proposed; editable later in the dashboard)
   min_trades: 100                # the baseline's forward shadow trades (every signal); ~16-17 days at ~6 a day

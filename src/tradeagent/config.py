@@ -93,16 +93,19 @@ class CostsConfig(_Section):
 
 
 class PaperAccountConfig(_Section):
+    """Account rules. null = no limit (the paper account takes every signal; live limits are set before going live)."""
+
     starting_balance: float = Field(gt=0)
     risk_per_trade: float = Field(gt=0, le=0.05)
-    max_positions: int = Field(ge=1, le=10)
-    max_positions_per_coin: int = Field(ge=1, le=5)
-    daily_loss_stop: float = Field(gt=0, le=0.5)
+    max_positions: int | None = Field(default=None, ge=1, le=100)
+    max_positions_per_coin: int | None = Field(default=None, ge=1, le=50)
+    daily_loss_stop: float | None = Field(default=None, gt=0, le=0.5)
     leverage_cap: float = Field(ge=1, le=50)
 
     @model_validator(mode="after")
     def _per_coin_within_total(self) -> PaperAccountConfig:
-        if self.max_positions_per_coin > self.max_positions:
+        if self.max_positions_per_coin is not None and self.max_positions is not None \
+                and self.max_positions_per_coin > self.max_positions:
             raise ValueError("max_positions_per_coin cannot be larger than max_positions")
         return self
 

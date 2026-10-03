@@ -18,8 +18,17 @@ BASELINE, CHALLENGER = "v0-aaaaaa", "tp_2r-bbbbbb"
 COSTS = Costs(maker_fee=0.0002, taker_fee=0.0005, slippage=0.0002)
 
 
+def live_limits(settings):
+    """The live-style limits these tests check (the configured paper account may have none)."""
+    settings.paper_account.max_positions = 2
+    settings.paper_account.max_positions_per_coin = 1
+    settings.paper_account.daily_loss_stop = 0.10
+    return settings
+
+
 @pytest.fixture
 def world(settings):
+    live_limits(settings)
     conn = connect(settings.resolve(settings.journal.path))
     migrate(conn)
     conn.executemany(
@@ -103,6 +112,7 @@ def test_minimum_order_size_and_rounding(settings):
 
 
 def test_entry_checks(settings):
+    live_limits(settings)
     xrp, link = OpenPosition("XRP", "long", 300.0), OpenPosition("LINK", "short", 300.0)
     base = {"balance": 150.0, "day_start_balance": 150.0, "rules": settings.paper_account, "kill_switch": "off"}
     assert check_entry(symbol="XRP", open_positions=[], **base) is None
@@ -308,3 +318,20 @@ def test_the_gate_counts_the_baselines_forward_shadow_trades(world):
     gate = {name: value for name, value, _ok in report["gate"]}
     assert gate["strategy trades (forward, every signal)"] == f"2 / {settings.goal.min_trades}"
     assert settings.goal.min_trades == 100
+
+
+def test_no_limits_means_every_signal_is_taken(settings):
+    settings.paper_account.max_positions = None
+    settings.paper_account.max_positions_per_coin = None
+    settings.paper_account.daily_loss_stop = None
+    open_positions = [OpenPosition("XRP", "long", 100.0)] * 7
+    base = {"day_start_balance": 150.0, "rules": settings.paper_account, "kill_switch": "off"}
+    assert check_entry(symbol="XRP", open_positions=open_positions, balance=60.0, **base) is None  # -60% today
+    assert check_entry(symbol="XRP", open_positions=[], balance=150.0, **{**base, "kill_switch": "pause"}) == "kill switch is pause"
+
+
+def test_the_configured_demo_account_has_no_trade_limits(repo_root):
+    from tradeagent.config import load_settings
+
+    rules = load_settings(repo_root).paper_account
+    assert (rules.max_positions, rules.max_positions_per_coin, rules.daily_loss_stop) == (None, None, None)

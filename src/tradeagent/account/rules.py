@@ -80,11 +80,13 @@ def check_entry(
     """Why a new position may not be opened right now (None = allowed)."""
     if kill_switch != "off":
         return f"kill switch is {kill_switch}"
-    if day_start_balance > 0 and (day_start_balance - balance) >= rules.daily_loss_stop * day_start_balance:
-        return f"daily loss stop ({rules.daily_loss_stop:.0%} of the day's starting balance) reached"
-    if sum(1 for p in open_positions if p.symbol == symbol) >= rules.max_positions_per_coin:
-        return f"{symbol} already has an open position"
-    if len(open_positions) >= rules.max_positions:
+    stop = rules.daily_loss_stop
+    if stop is not None and day_start_balance > 0 and (day_start_balance - balance) >= stop * day_start_balance:
+        return f"daily loss stop ({stop:.0%} of the day's starting balance) reached"
+    per_coin = rules.max_positions_per_coin
+    if per_coin is not None and sum(1 for p in open_positions if p.symbol == symbol) >= per_coin:
+        return f"{symbol} already has an open position" if per_coin == 1 else f"max {per_coin} open positions on {symbol}"
+    if rules.max_positions is not None and len(open_positions) >= rules.max_positions:
         return f"max {rules.max_positions} open positions"
     return None
 

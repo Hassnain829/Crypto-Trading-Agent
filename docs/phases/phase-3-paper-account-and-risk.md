@@ -11,6 +11,8 @@
 
 ## Rules (defaults, all editable in Settings)
 
+> **Since 2026-10-03 the paper account has no trade limits.** `max_positions`, `max_positions_per_coin` and `daily_loss_stop` are `null`, so it takes every baseline signal. The user wants as many demo trades as possible. The limits below stay in the code and are set for live trading in the dashboard.
+
 | Rule | Default |
 |---|---|
 | Starting balance | $150 |
