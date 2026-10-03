@@ -44,12 +44,14 @@ Until the dashboard exists (Phase 4), the rules are in `config/settings.yaml` un
 | Daily loss stop | Triggers at 10% of the day's starting balance, counting realized losses. It blocks new entries until 00:00 UTC; open positions keep running. Exploration never stops. |
 | Kill switch (`account/kill_switch.py`) | Three modes. `off`: normal trading. `pause`: no new entries. `close_all`: close every position at the last 1m price (slippage and taker fee included), then switch to `pause`. The mode is stored in the journal's settings with an audit trail, so the dashboard can use it later. |
 | Broker interface (`account/broker.py`) | `entry_fill`, `exit_report` and `close_now`. `PaperBroker` now; `BinanceBroker` in Phase 6 implements the same three calls. |
+| Limit entries | When the baseline uses limit entries (v2), the paper position pays the maker fee and no entry slippage, exactly like the exploration trade it follows |
 | Every decision stored | `account_trades` stores every signal, opened or rejected with the reason. It also stores size, leverage, risk, PnL in USDT, fees, funding, R and account %. |
 | Late signal | A signal that arrives after a later signal was already handled is stored as rejected, not traded |
 | New baseline | Followed from its promotion on. Its earlier trades stay in the exploration history. |
 | Open positions | `paper-report` values them at the last 1m close, exit costs included (equity) |
 | In the agent | Runs after the tracker in every cycle; the log line shows paper opened / rejected / settled |
-| Journal | Migrations 4 and 5: `account_state`, `account_trades` |
+| Trades on the chart (`tv/drawings.py`) | Each paper trade is drawn on the AGENT chart its signal came from, as a locked long/short position tool. It shows entry, stop, target, the account size and 2% risk. When the trade closes it is redrawn with its real length and a label such as `TP +1.49R (+5.18$)`. Drawings are synced globally, so they also appear in another layout (for example Market_check) when it shows that coin. Drawing ids are kept in `trade_drawings`; switch it off with `tradingview.draw_trades: false`. |
+| Journal | Migrations 4–6: `account_state`, `account_trades`, `trade_drawings` |
 
 ## Commands
 
@@ -58,6 +60,8 @@ Until the dashboard exists (Phase 4), the rules are in `config/settings.yaml` un
 | `python -m tradeagent paper-report` | Shows the account and its checks: balance and equity, open positions, skipped signals by reason, the consistency check and the go-live gate |
 | `python -m tradeagent kill-switch` | Show the kill switch. Change it with `kill-switch pause`, `kill-switch close_all` or `kill-switch off`. The agent applies it in its next cycle. |
 | `python -m tradeagent paper-reset --yes` | Delete the paper account history. The next `shadow-run` or agent cycle replays it with the current rules. |
+| `python -m tradeagent draw-trades` | Draw any paper trades that are not on the charts yet (the agent does this every cycle). `--clear` removes every drawing the agent made. |
+| `python -m tradeagent paper-reset --yes --from-now` | Start a fresh forward test: $150 again, only signals from now on. Used on 2026-10-03 to start the forward run with baseline v2. |
 
 ## Deliverables
 

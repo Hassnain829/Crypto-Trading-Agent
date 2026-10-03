@@ -46,10 +46,25 @@ def consistency_issues(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     return len(rows), issues
 
 
+def forward_sample(conn: sqlite3.Connection, since: int | None) -> list[float]:
+    """Net R of the current baseline's closed shadow trades (every signal it took) since `since`."""
+    return [r[0] for r in conn.execute(
+        "SELECT t.r_net FROM trades t JOIN variants v ON v.id = t.variant_id WHERE v.role = 'baseline'"
+        " AND t.book = 'exploration' AND t.taken = 1 AND t.status = 'closed' AND t.entry_time >= ?",
+        (since or 0,),
+    )]
+
+
 def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
+    """The paper account (money view) and the go-live gate.
+
+    The gate's sample (trade count, expectancy, profit factor) is the baseline's forward shadow trades, which
+    include every signal. Net PnL and drawdown come from the paper account, which follows the live limits.
+    """
     start = settings.paper_account.starting_balance
-    state = conn.execute("SELECT balance FROM account_state WHERE account = ?", (ACCOUNT,)).fetchone()
+    state = conn.execute("SELECT balance, started_at FROM account_state WHERE account = ?", (ACCOUNT,)).fetchone()
     balance = state["balance"] if state else start
+    started_at = state["started_at"] if state else None
     closed = conn.execute(
         "SELECT pnl_usd, r_net, fees_usd, balance_after FROM account_trades"
         " WHERE account = ? AND status = 'closed' ORDER BY exit_time, id",
@@ -82,9 +97,14 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
     for r in closed:
         peak = max(peak, r["balance_after"])
         max_dd = max(max_dd, (peak - r["balance_after"]) / peak)
-    days = (time.time() * 1000 - first_entry) / 86_400_000 if first_entry else 0.0
+    begin = started_at or first_entry
+    days = (time.time() * 1000 - begin) / 86_400_000 if begin else 0.0
     expectancy = sum(r["r_net"] for r in closed) / len(closed) if closed else None
     profit_factor = sum(wins) / -sum(losses) if losses else None
+    sample = forward_sample(conn, started_at)
+    sample_exp = sum(sample) / len(sample) if sample else None
+    sample_losses = -sum(r for r in sample if r < 0)
+    sample_pf = sum(r for r in sample if r > 0) / sample_losses if sample_losses else None
     checked, issues = consistency_issues(conn)
 
     now = int(time.time() * 1000)
@@ -94,14 +114,14 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
 
     goal = settings.goal
     gate = [
-        ("closed trades", f"{len(closed)} / {goal.min_trades}", len(closed) >= goal.min_trades),
+        ("strategy trades (forward, every signal)", f"{len(sample)} / {goal.min_trades}", len(sample) >= goal.min_trades),
         ("days running", f"{days:.1f} / {goal.min_days}", days >= goal.min_days),
-        ("net PnL > 0", f"{balance - start:+.2f} USDT", balance > start),
-        ("expectancy", f"{expectancy:+.3f}R / {goal.min_expectancy_r:+.2f}R" if expectancy is not None else "-",
-         expectancy is not None and expectancy >= goal.min_expectancy_r),
-        ("profit factor", f"{profit_factor:.2f} / {goal.min_profit_factor}" if profit_factor is not None else "-",
-         profit_factor is not None and profit_factor >= goal.min_profit_factor),
-        ("max drawdown", f"{max_dd:.1%} / {goal.max_drawdown:.0%}", max_dd <= goal.max_drawdown),
+        ("strategy expectancy", f"{sample_exp:+.3f}R / {goal.min_expectancy_r:+.2f}R" if sample_exp is not None else "-",
+         sample_exp is not None and sample_exp >= goal.min_expectancy_r),
+        ("strategy profit factor", f"{sample_pf:.2f} / {goal.min_profit_factor}" if sample_pf is not None else "-",
+         sample_pf is not None and sample_pf >= goal.min_profit_factor),
+        ("paper net PnL > 0", f"{balance - start:+.2f} USDT", balance > start),
+        ("paper max drawdown", f"{max_dd:.1%} / {goal.max_drawdown:.0%}", max_dd <= goal.max_drawdown),
         ("snapshot coverage (7 days, live)", f"{snapshot_coverage:.1%} / {goal.min_snapshot_coverage:.0%}",
          snapshot_coverage >= goal.min_snapshot_coverage),
         ("every trade explained (snapshot + reason)", f"{unexplained} without", unexplained == 0),
@@ -122,6 +142,9 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
         "rejected": [(r[0], r[1]) for r in rejected],
         "daily_stop_days": stop_days,
         "consistency_issues": issues,
+        "forward_start": started_at,
+        "strategy_trades": len(sample),
+        "strategy_expectancy_r": sample_exp,
         "gate": gate,
         "gate_met": all(ok for _, _, ok in gate),
     }

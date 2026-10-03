@@ -29,6 +29,28 @@
 8. **Promotion.** The winner becomes the new baseline for the paper account automatically. Live trading needs your approval.
 9. **Lesson.** Every experiment, won or lost, ends with a lesson in `research/lessons.md` and the journal.
 
+## Design reference: karpathy/autoresearch
+
+[autoresearch](https://github.com/karpathy/autoresearch) lets an LLM agent improve a model overnight. The agent:
+1. edits one file (`train.py`) and commits the change
+2. runs a fixed 5-minute experiment
+3. reads a ground-truth metric from code it may not change (`prepare.py`)
+4. keeps the commit if the metric improved, otherwise resets it
+5. logs every run in `results.tsv`
+
+Its code (GPT training on a GPU) is not useful here, but the loop maps directly:
+
+| autoresearch | Here |
+|---|---|
+| `program.md` (the human writes the agent's instructions) | `research/program.md`: what Claude may change (only `config/setups.yaml` variants, one change each), the metric, the rules |
+| `train.py` (the only file the agent edits) | `config/setups.yaml` |
+| `prepare.py` with the read-only metric | The replay, `verify-trades` and the report. Costs, data and the evaluation are off limits to Claude. |
+| 5-minute experiment | A replay of the history (~5 minutes) |
+| Keep or reset by git | Promote only if the variant wins in both halves of the history **and** on fresh forward trades |
+| `results.tsv` | `research/results.tsv` plus the `experiments` table and `research/lessons.md` |
+
+The main difference: a trading history is small and repeated tests overfit it fast. In the 2026-10-03 review, a combination that looked like +0.58R on two weeks was flat on older data. So forward confirmation stays mandatory, and the number of experiments is capped.
+
 ## Limits that stop the agent from fooling itself
 
 - Max 15 challengers at the same time.

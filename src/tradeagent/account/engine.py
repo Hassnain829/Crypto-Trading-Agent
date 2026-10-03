@@ -27,16 +27,33 @@ ACCOUNT = "paper"
 LATE = "signal arrived after a later signal was already handled"
 
 
+def reset_account(conn: sqlite3.Connection, settings: Settings, *, from_now: bool = False) -> int:
+    """Delete the paper account. With `from_now`, it restarts at the starting balance and takes only
+    signals from this moment on (a forward test); otherwise the next run replays the whole history."""
+    with conn:
+        deleted = conn.execute("DELETE FROM account_trades WHERE account = ?", (ACCOUNT,)).rowcount
+        conn.execute("DELETE FROM account_state WHERE account = ?", (ACCOUNT,))
+        if from_now:
+            baseline = conn.execute("SELECT id FROM variants WHERE role = 'baseline'").fetchone()
+            start, now = settings.paper_account.starting_balance, now_ms()
+            conn.execute(
+                "INSERT INTO account_state (account, balance, day, day_start_balance, last_entry_time, baseline,"
+                " started_at, updated_at) VALUES (?, ?, NULL, ?, ?, ?, ?, ?)",
+                (ACCOUNT, start, start, now, baseline[0] if baseline else None, now, now),
+            )
+    return deleted
+
+
 def utc_day(ms: int) -> str:
     return time.strftime("%Y-%m-%d", time.gmtime(ms / 1000))
 
 
-def position_pnl(position: Any, report: ExitReport, taker_fee: float) -> tuple[float, float, float]:
+def position_pnl(position: Any, report: ExitReport) -> tuple[float, float, float]:
     """(net PnL, fees, funding) in USDT of a position that closed as `report` describes."""
     sign = 1 if position["side"] == "long" else -1
     qty, entry_fill = position["qty"], position["entry_fill"]
     gross = qty * sum(sign * (leg.fill - entry_fill) * leg.fraction for leg in report.legs)
-    fees = qty * (entry_fill * taker_fee + sum(leg.fill * leg.fee_rate * leg.fraction for leg in report.legs))
+    fees = qty * (entry_fill * report.entry_fee_rate + sum(leg.fill * leg.fee_rate * leg.fraction for leg in report.legs))
     funding = qty * report.funding_per_unit
     return gross - fees - funding, fees, funding
 
@@ -56,16 +73,17 @@ class AccountEngine:
             return dict(row)
         return {"account": ACCOUNT, "balance": self.rules.starting_balance, "day": None,
                 "day_start_balance": self.rules.starting_balance, "last_entry_time": 0, "updated_at": 0,
-                "baseline": None}
+                "baseline": None, "started_at": None}
 
     def _save(self, state: dict) -> None:
         self.conn.execute(
-            "INSERT INTO account_state (account, balance, day, day_start_balance, last_entry_time, baseline, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (account) DO UPDATE SET balance = excluded.balance,"
-            " day = excluded.day, day_start_balance = excluded.day_start_balance,"
-            " last_entry_time = excluded.last_entry_time, baseline = excluded.baseline, updated_at = excluded.updated_at",
+            "INSERT INTO account_state (account, balance, day, day_start_balance, last_entry_time, baseline,"
+            " started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (account) DO UPDATE SET"
+            " balance = excluded.balance, day = excluded.day, day_start_balance = excluded.day_start_balance,"
+            " last_entry_time = excluded.last_entry_time, baseline = excluded.baseline,"
+            " started_at = excluded.started_at, updated_at = excluded.updated_at",
             (ACCOUNT, state["balance"], state["day"], state["day_start_balance"], state["last_entry_time"],
-             state["baseline"], now_ms()),
+             state["baseline"], state["started_at"], now_ms()),
         )
 
     @staticmethod
@@ -100,7 +118,7 @@ class AccountEngine:
     # ---- settlement --------------------------------------------------------------------------
     def _settle(self, state: dict, position: sqlite3.Row, report: ExitReport) -> None:
         self._roll_day(state, report.time)
-        pnl, fees, funding = position_pnl(position, report, self.costs.taker_fee)
+        pnl, fees, funding = position_pnl(position, report)
         state["balance"] += pnl
         self.conn.execute(
             """
@@ -228,7 +246,7 @@ class AccountEngine:
             last = self._last_price(position["symbol"])
             pnl = 0.0
             if last is not None:
-                pnl = position_pnl(position, self.broker.close_now(position["trade_id"], *last), self.costs.taker_fee)[0]
+                pnl = position_pnl(position, self.broker.close_now(position["trade_id"], *last))[0]
             rows.append({**dict(position), "last_price": last and last[1], "unrealized_usd": pnl,
                          "unrealized_r": pnl / position["risk_usd"]})
         return rows

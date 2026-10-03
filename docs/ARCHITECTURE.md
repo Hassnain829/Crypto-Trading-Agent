@@ -63,7 +63,7 @@ TradingView Desktop is a GUI app, so it needs a logged-in user session. On the V
 2. About `t + 3s`: the Signal Reader reads the closed 5m candle on the 3 coin tabs. At 15m closes it also reads the 15m charts.
 3. The HTF tab reads 1h at every hour close and 4h at every 4h close.
 4. The Setup Engine evaluates every variant. The Shadow Simulator opens shadow trades.
-5. Simulated entry price = the Binance 1m open right after the candle close, plus slippage. The trade is recorded once that 1m candle has closed, so normally in the next cycle.
+5. Simulated entry price = the Binance 1m open right after the candle close. A market entry adds slippage. A limit entry (baseline v2) fills only if that minute trades through the price. The trade is recorded once that 1m candle has closed, so normally in the next cycle.
 6. Outcome tracking runs on every new 1m candle.
 7. The paper account takes the baseline's new trades under the live rules and settles the ones that closed.
 

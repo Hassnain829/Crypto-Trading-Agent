@@ -1,7 +1,7 @@
 import pytest
 
 from tradeagent.journal import connect, migrate
-from tradeagent.market.candles import fetch_range, find_gaps, latest_closed_open, store_candles
+from tradeagent.market.candles import fetch_range, find_gaps, latest_closed_open, store_candles, sync_candles
 
 M1 = 60_000
 
@@ -41,3 +41,16 @@ def conn(tmp_path):
 def test_find_gaps(conn):
     store_candles(conn, "XRP", "1m", [[m * M1, 1, 1, 1, 1, 1] for m in [0, 1, 2, 5, 6, 9]])
     assert find_gaps(conn, "XRP", "1m", 0, 9 * M1) == [(3 * M1, 4 * M1), (7 * M1, 8 * M1)]
+
+
+def test_sync_extends_the_history_backwards_when_history_days_grows(conn):
+    client = FakeClient()
+    now = 10_000 * M1  # the fake exchange has minutes 0..9_999
+    day = 1_440
+    assert sync_candles(conn, client, "XRP", "XRP/USDT:USDT", "1m", now, 2) == 2 * day
+    oldest = conn.execute("SELECT min(open_time) FROM candles").fetchone()[0]
+    assert oldest == (10_000 - 2 * day) * M1
+    assert sync_candles(conn, client, "XRP", "XRP/USDT:USDT", "1m", now, 2) == 0  # nothing new
+    assert sync_candles(conn, client, "XRP", "XRP/USDT:USDT", "1m", now, 5) == 3 * day  # raised to 5 days
+    assert tuple(conn.execute("SELECT min(open_time), count(*) FROM candles").fetchone()) == ((10_000 - 5 * day) * M1, 5 * day)
+    assert find_gaps(conn, "XRP", "1m", 0, now) == []

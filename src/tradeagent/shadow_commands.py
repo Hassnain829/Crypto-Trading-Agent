@@ -12,7 +12,7 @@ from tradeagent.agent import Agent
 from tradeagent.config import Settings, load_settings
 from tradeagent.journal import connect, migrate
 from tradeagent.logging_setup import setup_logging
-from tradeagent.setups.report import variant_report
+from tradeagent.setups.report import baseline_median_entry, variant_report
 from tradeagent.tv.catalog import load_catalog
 
 
@@ -50,13 +50,13 @@ def market_sync() -> int:
     return 0
 
 
-def backfill() -> int:
+def backfill(bars: int | None = None) -> int:
     from tradeagent.tv.backfill import backfill_snapshots
 
-    with _agent() as agent:
+    with _agent(console_log=bool(bars)) as agent:
         async def run():
             await agent.reader.start()
-            return await backfill_snapshots(agent.reader)
+            return await backfill_snapshots(agent.reader, bars, reload_after=bool(bars))
 
         counts = asyncio.run(run())
     for name, n in counts.items():
@@ -93,12 +93,13 @@ def shadow_reset(confirm: bool) -> int:
     return 0
 
 
-def shadow_report() -> int:
+def shadow_report(halves: bool = False) -> int:
     settings = load_settings()
     conn = connect(settings.resolve(settings.journal.path))
     try:
         migrate(conn)
-        rows = variant_report(conn)
+        split = baseline_median_entry(conn) if halves else None
+        rows = variant_report(conn, split_time=split)
     finally:
         conn.close()
 
@@ -107,15 +108,24 @@ def shadow_report() -> int:
 
     print("Exploration book (closed, taken trades; R after fees, slippage and funding)")
     print(f"{'variant':<24} {'trades':>6} {'win%':>6} {'exp R':>7} {'total R':>8} {'PF':>5} {'maxDD R':>8} "
-          f"{'open':>5} {'cf n':>5} {'cf exp':>7} {'fees R':>7} {'amb':>4}")
+          f"{'open':>5} {'miss':>5} {'cf n':>5} {'cf exp':>7} {'fees R':>7} {'amb':>4}"
+          + (f" {'1st half':>14} {'2nd half':>14}" if split else ""))
     for r in rows:
+        halves_cols = ""
+        if split:
+            halves_cols = "".join(
+                f" {num(r[f'{h}_expectancy_r'], '+7.3f'):>7} ({r[f'{h}_trades']:>4})" for h in ("first", "second"))
         print(
             f"{r['variant']:<24} {r['trades']:>6} {num(r['win_rate'] and r['win_rate'] * 100, '6.1f'):>6} "
             f"{num(r['expectancy_r'], '+7.3f'):>7} {r['total_r']:>+8.2f} {num(r['profit_factor'], '5.2f'):>5} "
-            f"{r['max_drawdown_r']:>8.2f} {r['open']:>5} {r['counterfactual']:>5} "
+            f"{r['max_drawdown_r']:>8.2f} {r['open']:>5} {r['missed']:>5} {r['counterfactual']:>5} "
             f"{num(r['counterfactual_expectancy_r'], '+7.3f'):>7} {num(r['avg_fees_r'], '7.3f'):>7} {r['ambiguous']:>4}"
+            f"{halves_cols}"
         )
     print("\ncf = counterfactual: trades the variant's filters rejected, simulated anyway.")
+    print("miss = limit entries that did not fill (no trade).")
+    if split:
+        print(f"halves: trades entered before / after {_utc(split)} UTC (the baseline's median entry)")
     return 0
 
 
@@ -230,20 +240,25 @@ def paper_report() -> int:
     return 0
 
 
-def paper_reset(confirm: bool) -> int:
+def paper_reset(confirm: bool, from_now: bool = False) -> int:
+    from tradeagent.account.engine import reset_account
+
     if not confirm:
-        print("This deletes the paper account history so it can be replayed. Add --yes to do it.")
+        print("This deletes the paper account history. Add --yes to do it"
+              " (and --from-now to start a fresh forward test instead of replaying history).")
         return 1
     settings = load_settings()
     conn = connect(settings.resolve(settings.journal.path))
     try:
         migrate(conn)
-        with conn:
-            n = conn.execute("DELETE FROM account_trades WHERE account = 'paper'").rowcount
-            conn.execute("DELETE FROM account_state WHERE account = 'paper'")
+        n = reset_account(conn, settings, from_now=from_now)
     finally:
         conn.close()
-    print(f"deleted {n} paper account entries; run shadow-run to replay")
+    if from_now:
+        print(f"deleted {n} paper account entries; the account restarts at "
+              f"{settings.paper_account.starting_balance:g} USDT and takes signals from now on")
+    else:
+        print(f"deleted {n} paper account entries; run shadow-run to replay the history")
     return 0
 
 
@@ -259,6 +274,18 @@ def kill_switch(mode: str | None) -> int:
         print(f"kill switch: {get_kill_switch(conn)}")
     finally:
         conn.close()
+    return 0
+
+
+def draw_trades(clear: bool) -> int:
+    from tradeagent.tv.drawings import TradeDrawer
+
+    with _agent() as agent:
+        drawer = TradeDrawer(agent.settings, agent.conn, agent.reader.cdp, agent.reader.watchdog.pages)
+        if clear:
+            print(f"removed {asyncio.run(drawer.clear())} drawings")
+        else:
+            print(dict(asyncio.run(drawer.sync())) or "nothing new to draw")
     return 0
 
 

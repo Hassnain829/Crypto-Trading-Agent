@@ -102,12 +102,20 @@ Rules live in `config/setups.yaml`, not in code. A setup is: trigger → confirm
 |---|---|
 | `python -m tradeagent agent` | Run everything 24/7: reader, Binance data, setup engine, tracker and paper account (Ctrl+C to stop) |
 | `python -m tradeagent market-sync` | Sync Binance candles, funding and market info now |
-| `python -m tradeagent backfill-snapshots` | Store snapshots for the history loaded in TradingView. TradingView must run in debug mode, and the agent must be stopped, because this switches the HTF chart. |
+| `python -m tradeagent backfill-snapshots --bars 10000` | Load that much history on every chart (Essential allows 10,000 bars) and store its snapshots; without `--bars`, only what is loaded. TradingView must run in debug mode, and the agent must be stopped, because this switches the HTF chart. |
 | `python -m tradeagent shadow-run` | Process new snapshots and move open trades forward once. Not needed while the agent runs, because it does this every cycle. |
-| `python -m tradeagent shadow-report` | Results per variant: closed, taken trades; R after fees, slippage and funding; counterfactuals |
+| `python -m tradeagent shadow-report --halves` | Results per variant: closed, taken trades; R after fees, slippage and funding; counterfactuals. `--halves` adds each half of the history, to see whether a result holds over time. |
 | `python -m tradeagent trades --variant v0 --last 20` | List trades. `--id N` shows one trade in detail. |
 | `python -m tradeagent verify-trades --count 20` | Re-compute random closed trades independently |
 | `python -m tradeagent shadow-reset --yes` | Delete exploration trades, and the paper account that follows them, so the history can be replayed |
+
+## Strategy review (2026-10-03)
+
+The history was extended to 10,000 bars per chart, and more than 20 variants and two other strategy families were tested over ~100 days. See [the review](../research/2026-10-03-strategy-review.md). In short:
+- The video's rules lose 0.16R per trade after costs.
+- Baseline v2 (stops of at least 1.5%, limit-order entries) made +0.12R per trade and was positive in all four sub-periods.
+- The paper account went $150 → $179 on that history. A fresh forward run decides next.
+- New engine options: limit entries (unfilled ones are stored as `missed`), session filter, own-chart trend filter, counter-4h filter, moved stops, break-even, opposite-signal exit, time stop, and ATP MACD triggers.
 
 ## First results (history backfill, 2026-09-19 to 10-02)
 

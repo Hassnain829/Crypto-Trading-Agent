@@ -52,16 +52,21 @@ def store_candles(conn: sqlite3.Connection, symbol: str, timeframe: str, rows: l
 def sync_candles(
     conn: sqlite3.Connection, client: Any, symbol: str, ccxt_symbol: str, timeframe: str, now: int, history_days: int
 ) -> int:
-    """Fetch every closed candle after the newest stored one (or `history_days` back). Returns rows added."""
+    """Fetch every closed candle after the newest stored one, and before the oldest one if `history_days`
+    reaches further back than the stored history (for example after it was raised). Returns rows added."""
     step = tf_ms(timeframe)
-    newest = conn.execute(
-        "SELECT max(open_time) FROM candles WHERE symbol = ? AND timeframe = ?", (symbol, timeframe)
-    ).fetchone()[0]
-    start = newest + step if newest is not None else ((now - history_days * 86_400_000) // step) * step
+    oldest, newest = conn.execute(
+        "SELECT min(open_time), max(open_time) FROM candles WHERE symbol = ? AND timeframe = ?", (symbol, timeframe)
+    ).fetchone()
+    first_wanted = ((now - history_days * 86_400_000) // step) * step
     last_open = latest_closed_open(now, timeframe)
-    if start > last_open:
-        return 0
-    return store_candles(conn, symbol, timeframe, fetch_range(client, ccxt_symbol, timeframe, start, last_open))
+    added = 0
+    if oldest is not None and oldest > first_wanted:
+        added += store_candles(conn, symbol, timeframe, fetch_range(client, ccxt_symbol, timeframe, first_wanted, oldest - step))
+    start = newest + step if newest is not None else first_wanted
+    if start <= last_open:
+        added += store_candles(conn, symbol, timeframe, fetch_range(client, ccxt_symbol, timeframe, start, last_open))
+    return added
 
 
 def find_gaps(conn: sqlite3.Connection, symbol: str, timeframe: str, start: int, end: int) -> list[tuple[int, int]]:
@@ -91,8 +96,12 @@ def repair_gaps(
 
 
 def sync_funding(conn: sqlite3.Connection, client: Any, symbol: str, ccxt_symbol: str, now: int, history_days: int) -> int:
-    newest = conn.execute("SELECT max(funding_time) FROM funding WHERE symbol = ?", (symbol,)).fetchone()[0]
-    since = newest + 1 if newest is not None else now - history_days * 86_400_000
+    oldest, newest = conn.execute(
+        "SELECT min(funding_time), max(funding_time) FROM funding WHERE symbol = ?", (symbol,)
+    ).fetchone()
+    first_wanted = now - history_days * 86_400_000
+    # Older history is wanted (first sync, or history_days was raised): fetch from there; rows are upserted.
+    since = first_wanted if newest is None or oldest > first_wanted + 86_400_000 else newest + 1
     added = 0
     while True:
         rates = client.fetch_funding_rate_history(ccxt_symbol, since=since, limit=1000)

@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from tradeagent.account.engine import LATE, AccountEngine
+from tradeagent.account.engine import LATE, AccountEngine, reset_account
 from tradeagent.account.kill_switch import get_kill_switch, set_kill_switch
 from tradeagent.account.report import account_report, consistency_issues
 from tradeagent.account.rules import MarketLimits, OpenPosition, check_entry, round_down, size_position
@@ -36,10 +36,10 @@ def world(settings):
 
 
 def add_trade(conn, symbol, side, entry_time, entry, stop, exit_time=None, exit_price=None, *, target=False,
-              variant=BASELINE, tf="5m", taken=1, created_at=None):
+              variant=BASELINE, tf="5m", taken=1, created_at=None, limit=False):
     """An exploration trade as the setup engine and tracker would store it (closed if exit_time is given)."""
     state = open_trade(side=side, mode="fixed", entry_time=entry_time, entry_ref=entry, stop=stop, take_profit_r=1.5,
-                       partial_r=1.0, partial_fraction=0.5, trail_lookback=3, costs=COSTS)
+                       partial_r=1.0, partial_fraction=0.5, trail_lookback=3, costs=COSTS, limit_entry=limit)
     if target:  # a candle that reaches the take-profit: limit exit with the maker fee
         step(state, (exit_time, entry, max(entry, state.target), min(entry, state.target), state.target), COSTS)
     elif exit_time is not None:
@@ -266,3 +266,45 @@ def test_open_positions_are_valued_at_the_last_price(world):
     report = account_report(conn, settings)
     assert report["balance"] == 150.0 and report["equity"] == pytest.approx(150.0 + expected)
     assert report["gate_met"] is False
+
+
+def test_limit_entries_pay_the_maker_fee_in_the_paper_account_too(world):
+    conn, settings = world
+    trade = add_trade(conn, "XRP", "long", T0 + H, 2.0, 1.98, T0 + H + 30 * M1, target=True, limit=True)
+    AccountEngine(settings, conn).process()
+    row = paper(conn, trade)
+    assert row["entry_fill"] == 2.0  # no slippage on a limit fill
+    exploration_r = conn.execute("SELECT r_net FROM trades WHERE id = ?", (trade,)).fetchone()[0]
+    assert row["r_net"] == pytest.approx(exploration_r, abs=1e-9)
+    assert row["fees_usd"] == pytest.approx(row["qty"] * (2.0 + 2.03) * COSTS.maker_fee, rel=1e-6)
+
+
+def test_a_forward_test_starts_fresh_and_ignores_history(world):
+    conn, settings = world
+    old = add_trade(conn, "XRP", "long", T0 + H, 2.0, 1.98, T0 + H + 30 * M1, target=True)
+    engine = AccountEngine(settings, conn)
+    engine.process()
+    assert paper(conn, old)["status"] == "closed" and balance(conn) != 150.0
+    reset_account(conn, settings, from_now=True)
+    assert balance(conn) == 150.0 and paper(conn, old) is None
+    engine.process()  # the old signal is history: not taken again
+    assert paper(conn, old) is None
+    new = add_trade(conn, "SOL", "long", now_ms() + H, 150.0, 148.5)
+    engine.process()
+    assert paper(conn, new)["status"] == "open"
+
+
+def test_the_gate_counts_the_baselines_forward_shadow_trades(world):
+    conn, settings = world
+    add_trade(conn, "XRP", "long", T0 + H, 2.0, 1.98, T0 + H + 30 * M1, target=True)  # history: not counted
+    reset_account(conn, settings, from_now=True)
+    start = conn.execute("SELECT started_at FROM account_state").fetchone()[0]
+    later = start + H
+    add_trade(conn, "SOL", "long", later, 150.0, 148.5, later + 30 * M1, target=True)
+    add_trade(conn, "LINK", "short", later + M1, 20.0, 20.2, later + 40 * M1, 20.2)
+    add_trade(conn, "XRP", "long", later + 2 * M1, 2.0, 1.98, later + 50 * M1, target=True, variant=CHALLENGER)
+    report = account_report(conn, settings)
+    assert report["forward_start"] == start and report["strategy_trades"] == 2  # baseline only, since the start
+    gate = {name: value for name, value, _ok in report["gate"]}
+    assert gate["strategy trades (forward, every signal)"] == f"2 / {settings.goal.min_trades}"
+    assert settings.goal.min_trades == 100

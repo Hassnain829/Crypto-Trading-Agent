@@ -2,7 +2,9 @@
 
 A self-improving crypto scalping agent. It reads signals from TradingView indicators, practices on shadow (paper) trades, learns from the results one change at a time, and later trades live on Binance with small capital.
 
-> **Status (2026-10-02):** Phase 0 complete. Phases 1–3 are built: the TradingView signal reader, the shadow engine and the paper account. Next are their long runs (48 hours for Phase 1, 7 days for Phases 2 and 3), done with one `agent` run.
+> **Status (2026-10-03):** Phase 0 complete. Phases 1–3 are built: the TradingView signal reader, the shadow engine and the paper account.
+> A strategy review replaced the video's rules (−0.16R per trade over ~100 days) with baseline v2: stops of at least 1.5% and limit-order entries, +0.12R per trade on the same history ([review](docs/research/2026-10-03-strategy-review.md)).
+> Next: the forward run with `agent` (7+ days); the paper account starts fresh at $150.
 
 ## Quick start (Windows, PowerShell)
 
@@ -34,7 +36,7 @@ powershell -ExecutionPolicy Bypass -File scripts\launch_tradingview_debug.ps1
 Other commands:
 
 - Reader: `reader`, `snapshot`, `tv-status`, `show`, `verify-candles`, `coverage`, `repaint-audit`. See [Phase 1](docs/phases/phase-1-tradingview-reader.md#commands).
-- Shadow engine: `market-sync`, `backfill-snapshots`, `shadow-run`, `trades`, `verify-trades`, `shadow-reset`. See [Phase 2](docs/phases/phase-2-shadow-engine.md#commands).
+- Shadow engine: `market-sync`, `backfill-snapshots --bars 10000`, `shadow-run`, `shadow-report --halves`, `trades`, `verify-trades`, `shadow-reset`. See [Phase 2](docs/phases/phase-2-shadow-engine.md#commands).
 - Paper account: `paper-report`, `kill-switch`, `paper-reset`. See [Phase 3](docs/phases/phase-3-paper-account-and-risk.md#commands).
 
 ## How it works
@@ -58,7 +60,7 @@ Other commands:
 | Indicators in Python | None. Python only reads TradingView. |
 | Shadow trading | Unlimited exploration + a live-like paper account |
 | Live start | $100–150, 2% risk per trade, max 2 positions, daily loss stop 10–12% |
-| Dashboard | Python (NiceGUI), English UI |
+| Dashboard | Python (NiceGUI),  |
 
 ## Documents
 

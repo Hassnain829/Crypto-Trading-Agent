@@ -193,4 +193,25 @@ CREATE INDEX idx_account_trades_status ON account_trades (account, status);
 ALTER TABLE account_state ADD COLUMN baseline TEXT;
 """,
     ),
+    (
+        6,
+        "trade drawings",
+        """
+CREATE TABLE trade_drawings (              -- paper trades drawn on the TradingView charts
+    account_trade_id INTEGER PRIMARY KEY,
+    layout_id TEXT NOT NULL,               -- AGENT layout the drawing was made in
+    shape_ids TEXT NOT NULL,               -- JSON list of TradingView drawing ids (position tool, result label)
+    drawn_state TEXT NOT NULL,             -- open | closed: the paper trade's status when it was drawn
+    updated_at INTEGER NOT NULL
+);
+""",
+    ),
+    (
+        7,
+        "forward test start",
+        """
+-- When the current forward test started (paper-reset --from-now); NULL = the account replays history.
+ALTER TABLE account_state ADD COLUMN started_at INTEGER;
+""",
+    ),
 ]

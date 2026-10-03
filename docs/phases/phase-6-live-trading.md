@@ -16,20 +16,26 @@
 ## Build tasks
 
 1. **BinanceBroker** (ccxt, USDT-M): isolated margin and leverage per symbol.
-2. **Protected entries.** The entry order is followed immediately by the stop-loss and take-profit as reduce-only orders on Binance. If the protective stop cannot be placed, the position is closed at once.
-3. **Hybrid exit management.** Partial close at 1R, stop moved to break-even, trailing stop updates.
-4. **Unique client order IDs**, so retries never create double orders.
-5. **Reconciliation** at startup and every cycle:
+2. **Same entries as the paper account.** The live account must trade exactly what was tested:
+   - same signals and sizing
+   - same stop and target
+   - the same entry type: since baseline v2 (2026-10-03), a post-only limit order at the entry price that is cancelled if it is not filled within the first minute
+3. **Protected entries.** The entry order is followed immediately by the stop-loss and take-profit as reduce-only orders on Binance. If the protective stop cannot be placed, the position is closed at once.
+4. **Hybrid exit management.** Partial close at 1R, stop moved to break-even, trailing stop updates.
+5. **Unique client order IDs**, so retries never create double orders.
+6. **Reconciliation** at startup and every cycle:
    - compare Binance positions and orders with the journal
    - cancel orphan orders
    - make sure every position has a stop
-6. **Error handling:** rate limits, rejections, partial fills, network failures.
-7. **Safety rails:**
+7. **Error handling:** rate limits, rejections, partial fills, network failures.
+8. **Safety rails:**
    - daily loss stop (10–12%), max 2 positions, leverage cap
    - no new entries if TradingView snapshots are late or Binance data has gaps
    - kill switch: cancel all orders and close all positions
    - switching to live needs an explicit confirmation in the dashboard
-8. **Slippage tracking:** live fill vs paper fill for the same signal.
+9. **Slippage and fill tracking:**
+   - live fill vs paper fill for the same signal
+   - live limit fill rate vs the simulated rate (about 86–93% in the first minute)
 
 ## Rollout
 

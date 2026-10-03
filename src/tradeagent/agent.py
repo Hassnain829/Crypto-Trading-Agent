@@ -17,6 +17,7 @@ from tradeagent.setups.config import load_variants, register_variants
 from tradeagent.setups.engine import SetupEngine
 from tradeagent.sim.tracker import Tracker
 from tradeagent.tv.catalog import Catalog
+from tradeagent.tv.drawings import TradeDrawer
 from tradeagent.tv.reader import SignalReader
 from tradeagent.tv.snapshots import Snapshot
 
@@ -33,6 +34,8 @@ class Agent:
         self.engine = SetupEngine(settings, self.variants, conn)
         self.tracker = Tracker(settings, conn)
         self.account = AccountEngine(settings, conn)
+        self.drawer = (TradeDrawer(settings, conn, self.reader.cdp, self.reader.watchdog.pages)
+                       if settings.tradingview.draw_trades else None)
         self._client: Any = None
 
     @property
@@ -65,6 +68,13 @@ class Agent:
             f"{counts['paper_rejected']} rejected, {counts['paper_settled']} settled"
         )
         log.info(message)
+        if self.drawer:
+            try:  # drawings are a convenience: they must never break the cycle
+                drawn = await self.drawer.sync()
+                if drawn:
+                    log.info("drawings: %s", dict(drawn))
+            except Exception as exc:
+                log.warning("drawing paper trades failed: %s", exc)
         if counts["no_entry_candle"]:
             log_event(self.conn, "WARNING", "engine", f"{counts['no_entry_candle']} candles had no Binance entry candle")
 

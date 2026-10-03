@@ -51,7 +51,7 @@ _TAB_STATE = """function () {
 
 # Optionally switch the symbol, then wait until every chart in the tab is loaded, has at least
 # minBars of history, and every study has recomputed over that history.
-_PREPARE = """async function (targetSymbol, minBars, timeoutMs) {
+_PREPARE = """async function (targetSymbol, minBars, timeoutMs, maxRequests, acceptLess) {
 """ + _HELPERS + """
   var charts = api._chartWidgetCollection.getAll();
   var started = Date.now();
@@ -88,12 +88,13 @@ _PREPARE = """async function (targetSymbol, minBars, timeoutMs) {
       if (ms._status.value().seriesStatus !== 3 || ms.isLoading()) sawLoading = true;
       if (!seriesReady(cw)) { ok = false; continue; }
       if (ms.bars().size() < minBars) {
-        ok = false;
-        if (ms.requestMoreDataAvailable() && requests[i] < 5) {
+        var more = ms.requestMoreDataAvailable() && requests[i] < maxRequests;
+        if (more) {
           ms.requestMoreData(minBars - ms.bars().size() + 10);
           requests[i]++;
         }
-        continue;
+        // A backfill takes whatever history exists once TradingView has no more to give.
+        if (more || !acceptLess) { ok = false; continue; }
       }
       if (!studiesReady(cw, i)) ok = false;
     }
@@ -179,8 +180,19 @@ _READ_INPUTS = """function (studyNames) {
 
 # Values of the catalog plots for every closed candle from fromTime on, skipping the first `warmup`
 # loaded candles (indicators are still warming up there). Used to backfill history.
-_READ_HISTORY = """function (spec, chartIndex, fromTime, warmup) {
+_READ_HISTORY = """function (spec, chartIndex, fromTime, warmup, maxRows) {
 """ + _HELPERS + """
+  function findIndex(series, t) {
+    var lo = series.firstIndex(), hi = series.lastIndex();
+    if (lo === null || hi === null) return -1;
+    while (lo <= hi) {
+      var mid = (lo + hi) >> 1, v = series.valueAt(mid);
+      if (!v) return -1;
+      if (v[0] === t) return mid;
+      if (v[0] < t) lo = mid + 1; else hi = mid - 1;
+    }
+    return -1;
+  }
   var charts = api._chartWidgetCollection.getAll();
   if (chartIndex >= charts.length) return { error: 'no chart at index ' + chartIndex };
   var cw = charts[chartIndex];
@@ -189,6 +201,7 @@ _READ_HISTORY = """function (spec, chartIndex, fromTime, warmup) {
   var out = seriesState(cw);
   out.problems = [];
   out.rows = [];
+  out.next_time = null;
   var studies = userStudies(chartIndex);
   var cols = [];
   Object.keys(spec).forEach(function (key) {
@@ -217,7 +230,10 @@ _READ_HISTORY = """function (spec, chartIndex, fromTime, warmup) {
     var values = {}, complete = true;
     for (var c = 0; c < cols.length; c++) {
       var row = cols[c].data.valueAt(i);
-      if (!row || row[0] !== b[0]) row = rowAt(cols[c].data, b[0]);
+      if (!row || row[0] !== b[0]) {
+        var j = findIndex(cols[c].data, b[0]);
+        row = j >= 0 ? cols[c].data.valueAt(j) : null;
+      }
       if (!row) { complete = false; break; }
       var vals = {};
       cols[c].fields.forEach(function (f) {
@@ -228,6 +244,10 @@ _READ_HISTORY = """function (spec, chartIndex, fromTime, warmup) {
       values[cols[c].key] = vals;
     }
     if (complete) out.rows.push([b[0], b[1], b[2], b[3], b[4], b[5], values]);
+    if (maxRows && out.rows.length >= maxRows) {
+      if (i < last) out.next_time = bars.valueAt(i + 1)[0];
+      break;
+    }
   }
   return out;
 }"""
@@ -248,16 +268,17 @@ def tab_state() -> str:
     return _call(_TAB_STATE)
 
 
-def prepare(symbol: str | None, min_bars: int, timeout_ms: int) -> str:
-    return _call(_PREPARE, symbol, min_bars, timeout_ms)
+def prepare(symbol: str | None, min_bars: int, timeout_ms: int, max_requests: int = 5, accept_less: bool = False) -> str:
+    return _call(_PREPARE, symbol, min_bars, timeout_ms, max_requests, accept_less)
 
 
 def read_closed(spec: dict[str, Any], chart_index: int, bar_time_s: int) -> str:
     return _call(_READ_CLOSED, spec, chart_index, bar_time_s)
 
 
-def read_history(spec: dict[str, Any], chart_index: int, from_time_s: int, warmup: int) -> str:
-    return _call(_READ_HISTORY, spec, chart_index, from_time_s, warmup)
+def read_history(spec: dict[str, Any], chart_index: int, from_time_s: int, warmup: int, max_rows: int = 0) -> str:
+    """Rows from from_time_s on; with max_rows, at most that many plus `next_time` to continue from."""
+    return _call(_READ_HISTORY, spec, chart_index, from_time_s, warmup, max_rows)
 
 
 def read_inputs(study_names: list[str]) -> str:

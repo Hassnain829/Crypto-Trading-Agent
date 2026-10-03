@@ -56,6 +56,12 @@ class Tracker:
                 while next_funding < len(funding) and funding[next_funding]["funding_time"] <= t:
                     apply_funding(state, funding[next_funding]["rate"], c["open"])
                     next_funding += 1
+                if state.exit_at is not None and t >= state.exit_at:
+                    close_now(state, t, c["open"], self.costs, "opposite signal")
+                    break
+                if state.time_stop_at is not None and t >= state.time_stop_at:
+                    close_now(state, t, c["open"], self.costs, "time stop")
+                    break
                 if t - trade["entry_time"] >= self.max_hold_ms:
                     close_now(state, t, c["open"], self.costs, "timeout")
                     break

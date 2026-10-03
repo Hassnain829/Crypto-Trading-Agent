@@ -1,12 +1,19 @@
-# Setup rules for the shadow engine (Phase 2).
-# "baseline" is V0, the first hypothesis (Q-Trend arrow confirmed by Klinger and the candle).
-# Every variant changes exactly ONE thing from the baseline. All of them run in parallel on the
-# same signals in the exploration book. Changing a variant's rules gives it a new id automatically.
+# Setup rules for the shadow engine.
+# "baseline" is the current best rule set; the paper account trades it. History:
+#   v0 (2026-10-02): the video's checklist - Q-Trend arrow confirmed by Klinger and the candle,
+#                    stop at the 10-candle swing, target 1.5R, market entry.
+#   v1 (2026-10-03): v0, but skip setups whose swing stop is closer than 1% (costs eat tight stops).
+#   v2 (2026-10-03): stops of at least 1.5%, and limit-order entries (maker fee, no slippage).
+#                    Positive in all four sub-periods of the ~100-day history; must hold on fresh data.
+#   See docs/research/2026-10-03-strategy-review.md.
+# Every variant changes exactly ONE thing from the baseline (video_original is a reference with more).
+# All of them run in parallel on the same signals in the exploration book. Changing a variant's rules
+# gives it a new id automatically. Retired variants and their results are in the research documents.
 
 baseline:
   timeframes: ["5m", "15m"]
   trigger:
-    indicator: qtrend        # qtrend | zerolag
+    indicator: qtrend        # qtrend | zerolag | atp_macd
     long: buy                # flag field (config/indicators.yaml) that starts a long setup
     short: sell
   confirmation:
@@ -16,31 +23,39 @@ baseline:
   filters:
     vwap: false              # longs only at/above VWAP, shorts only at/below
     macd_trend: false        # longs only when the ATP MACD line > 0, shorts only when < 0
-    htf: none                # none | 1h | 1h+4h: the Zero Lag trend on those timeframes must agree
-    min_stop_pct: 0.0        # skip trades whose stop is closer than this % of the entry (fees)
+    htf: none                # none | 1h | 1h+4h (Zero Lag trend must agree) | against_4h (must disagree)
+    min_stop_pct: 1.5        # skip setups whose swing stop is closer than this % of the entry
+    zl_own: false            # the signal must agree with its own chart's Zero Lag trend
+    session_utc: null        # [start, end): only entries whose UTC hour is inside
+  entry:
+    mode: limit              # market (taker + slippage) | limit (maker; fills only if the first minute trades through)
   stop:
     lookback: 10             # lowest low (long) / highest high (short) of the last N candles, confirming candle included
+    anchor: trade            # trade | 1h: also beyond the last N closed 1h candles
+    multiplier: 1.0          # stop distance x this (the target stays at take_profit_r of the swing)
   exit:
     mode: fixed              # fixed | hybrid | htf_rule (hybrid when 1h and 4h agree, otherwise fixed)
     take_profit_r: 1.5
     partial_r: 1.0           # hybrid: close part of the trade at this R
     partial_fraction: 0.5
     trail_lookback: 3        # hybrid: then trail behind the low/high of the last N closed candles
+    breakeven_r: null        # stop to break-even once the price went this many R
+    opposite_signal: false   # close when the opposite trigger appears on the same chart
+    max_candles: null        # time stop: close at market after this many chart candles
 
 variants:
-  tp_1r:            {exit: {take_profit_r: 1.0}}
-  tp_2r:            {exit: {take_profit_r: 2.0}}
-  exit_hybrid:      {exit: {mode: hybrid}}
-  exit_htf_rule:    {exit: {mode: htf_rule}}
+  # Reference: the video's original rules (no minimum stop, market entry).
+  video_original:   {filters: {min_stop_pct: 0.0}, entry: {mode: market}}
+
+  # One change each
+  market_entry:     {entry: {mode: market}}               # what the limit entry is worth on fresh data
+  min_stop_1pct:    {filters: {min_stop_pct: 1.0}}
+  min_stop_2pct:    {filters: {min_stop_pct: 2.0}}
+  session_13_21:    {filters: {session_utc: [13, 21]}}    # US session, 18:00-02:00 Pakistan time (strongest candidate)
+  session_07_21:    {filters: {session_utc: [7, 21]}}     # Europe + US, 12:00-02:00 Pakistan time
+  htf_against_4h:   {filters: {htf: against_4h}}
+  tf_15m:           {timeframes: ["15m"]}
   confirm_0:        {confirmation: {window: 0}}
-  confirm_1:        {confirmation: {window: 1}}
-  confirm_2:        {confirmation: {window: 2}}
+  stop_1h_swing:    {stop: {anchor: "1h"}}
   filter_vwap:      {filters: {vwap: true}}
-  filter_macd:      {filters: {macd_trend: true}}
-  filter_htf_1h:    {filters: {htf: "1h"}}
-  filter_htf_1h4h:  {filters: {htf: "1h+4h"}}
-  trigger_zl_flip:  {trigger: {indicator: zerolag, long: bullish_trend, short: bearish_trend}}
-  trigger_zl_entry: {trigger: {indicator: zerolag, long: bullish_entry, short: bearish_entry}}
-  stop_5:           {stop: {lookback: 5}}
-  stop_20:          {stop: {lookback: 20}}
-  min_stop_025:     {filters: {min_stop_pct: 0.25}}
+  trigger_strong:   {trigger: {long: strong_buy, short: strong_sell}}

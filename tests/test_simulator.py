@@ -118,3 +118,37 @@ def test_state_survives_json_roundtrip():
 def test_stop_on_the_wrong_side_is_rejected():
     with pytest.raises(ValueError):
         _long(stop=100.5)
+
+
+def test_breakeven_moves_the_stop_after_the_candle_that_reached_1r():
+    s = _long(costs=REAL, breakeven_r=1.0)
+    step(s, (0, 100.0, 101.05, 99.5, 100.9), REAL)  # +1R reached: the stop moves after this candle
+    assert not s.closed and s.breakeven_done
+    assert s.stop == pytest.approx(100.0 * (1 + REAL.slippage) * (1 + 2 * REAL.taker_fee + REAL.slippage))
+    step(s, (60_000, 100.8, 100.9, 100.1, 100.2), REAL)  # back to the entry: out at break-even
+    assert s.closed and s.exit_reason == "breakeven"
+    assert abs(results(s, REAL)["r_net"]) < 0.01
+
+
+def test_breakeven_is_not_applied_inside_the_candle_that_reached_it():
+    s = _long(breakeven_r=1.0)
+    step(s, (0, 100.0, 101.2, 98.9, 100.0), FREE)  # +1.2R and the stop in one candle: the stop counts
+    assert s.closed and s.exit_reason == "stop"
+
+
+def test_limit_entry_pays_the_maker_fee_and_no_slippage():
+    s = _long(costs=REAL, limit_entry=True)
+    assert s.entry_fill == 100.0 and s.entry_fee_rate == REAL.maker_fee
+    step(s, (0, 100.0, 101.6, 99.95, 101.0), REAL)  # the fill minute reaches the target: not provable, ignored
+    assert not s.closed
+    step(s, (60_000, 101.0, 101.6, 100.9, 101.5), REAL)
+    assert s.closed and s.exit_reason == "target"
+    r = results(s, REAL)
+    expected_fees = (100.0 * REAL.maker_fee + 101.5 * REAL.maker_fee) / 1.0
+    assert r["fees_r"] == pytest.approx(expected_fees) and r["slippage_r"] == pytest.approx(0.0)
+
+
+def test_limit_entry_still_counts_a_stop_in_the_fill_minute():
+    s = _long(limit_entry=True)
+    step(s, (0, 100.0, 100.2, 98.9, 99.0), FREE)
+    assert s.closed and s.exit_reason == "stop"

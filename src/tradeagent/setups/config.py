@@ -24,7 +24,7 @@ class _Strict(BaseModel):
 
 
 class TriggerParams(_Strict):
-    indicator: Literal["qtrend", "zerolag"]
+    indicator: Literal["qtrend", "zerolag", "atp_macd"]
     long: str
     short: str
 
@@ -38,20 +38,42 @@ class ConfirmationParams(_Strict):
 class FilterParams(_Strict):
     vwap: bool
     macd_trend: bool
-    htf: Literal["none", "1h", "1h+4h"]
+    htf: Literal["none", "1h", "1h+4h", "against_4h"]  # with the 1h / 1h+4h Zero Lag trend, or against the 4h one
     min_stop_pct: float = Field(ge=0, le=5)
+    zl_own: bool = False  # the signal must agree with the Zero Lag trend of its own chart
+    session_utc: tuple[int, int] | None = None  # only entries whose UTC hour is in [start, end)
+
+    @field_validator("session_utc")
+    @classmethod
+    def _session(cls, value: tuple[int, int] | None) -> tuple[int, int] | None:
+        if value is not None and not 0 <= value[0] < value[1] <= 24:
+            raise ValueError("session_utc must be [start, end) UTC hours with 0 <= start < end <= 24")
+        return value
+
+
+class EntryParams(_Strict):
+    # market: at the 1m open after the signal (taker fee + slippage). limit: a limit order at that price,
+    # filled only if the price trades through it within that first minute (maker fee, no slippage).
+    mode: Literal["market", "limit"] = "market"
 
 
 class StopParams(_Strict):
     lookback: int = Field(ge=1, le=100)
+    anchor: Literal["trade", "1h"] = "trade"  # swing of the trading chart, or also of the last 1h candles
+    multiplier: float = Field(default=1.0, ge=0.5, le=5)  # stop distance times this
 
 
 class ExitParams(_Strict):
+    """Targets are measured from the chart's swing stop, so moving the stop (anchor, multiplier) keeps the target."""
+
     mode: Literal["fixed", "hybrid", "htf_rule"]
     take_profit_r: float = Field(ge=0.25, le=10)
     partial_r: float = Field(ge=0.25, le=10)
     partial_fraction: float = Field(gt=0, lt=1)
     trail_lookback: int = Field(ge=1, le=50)
+    breakeven_r: float | None = Field(default=None, ge=0.25, le=10)  # stop to break-even after the price went +X R
+    opposite_signal: bool = False  # close at market when the opposite trigger appears on the same chart
+    max_candles: int | None = Field(default=None, ge=1, le=500)  # time stop: close at market after N chart candles
 
 
 class SetupParams(_Strict):
@@ -59,14 +81,15 @@ class SetupParams(_Strict):
     trigger: TriggerParams
     confirmation: ConfirmationParams
     filters: FilterParams
+    entry: EntryParams = Field(default_factory=EntryParams)
     stop: StopParams
     exit: ExitParams
 
     @field_validator("timeframes")
     @classmethod
     def _trading_timeframes(cls, value: list[str]) -> list[str]:
-        if any(tf not in ("1m", "3m", "5m", "15m", "30m") for tf in value):
-            raise ValueError(f"setups run on trading timeframes only, got {value}")
+        if any(tf not in ("1m", "3m", "5m", "15m", "30m", "1h") for tf in value):
+            raise ValueError(f"setups run on 1m to 1h charts only, got {value}")
         return value
 
 

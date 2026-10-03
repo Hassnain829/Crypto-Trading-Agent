@@ -41,19 +41,21 @@ The tighter the stop, the bigger the fee share. With a 0.5% stop, fees are only 
 
 ## 4. Go-live gate (proposed, editable in Settings)
 
-Live trading can start only when all of these are true for the **paper account**:
+Live trading can start only when all of these are true. They are counted from the start of the forward test (`paper-reset --from-now`).
 
-| Check | Target |
-|---|---|
-| Sample size | ≥ 150 closed trades and ≥ 14 days |
-| Net result | Net PnL > 0 after all costs |
-| Expectancy | ≥ +0.10R per trade |
-| Profit factor | ≥ 1.3 |
-| Max drawdown | ≤ 15% |
+| Check | Measured on | Target |
+|---|---|---|
+| Sample size | The baseline's forward shadow trades (every signal it takes, ~6 a day) | ≥ 100 closed trades and ≥ 14 days |
+| Expectancy | Same | ≥ +0.10R per trade |
+| Profit factor | Same | ≥ 1.3 |
+| Net result | Paper account (live limits) | Net PnL > 0 after all costs |
+| Max drawdown | Paper account | ≤ 15% |
 | Data quality | ≥ 99% of expected candle snapshots captured in the last 7 days |
 | Explainability | Every trade has its indicator snapshot and reason recorded |
 
 When all checks pass, the dashboard shows "Gate met". You still decide. The gate never turns live trading on by itself.
+
+Why the sample is the shadow trades: the paper account takes only about 2 of the ~6 daily signals because of its position limits, so 150 paper trades would take about 70 days. The shadow trades follow the same rules and fills, so they test the strategy faster (decided 2026-10-03: 100 trades in about 16–17 days). The paper account still shows what the money would have done.
 
 ## 5. Research flags (warnings, not brakes)
 

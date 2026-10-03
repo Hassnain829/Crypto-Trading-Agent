@@ -10,7 +10,7 @@ import sqlite3
 from dataclasses import dataclass
 from typing import Protocol
 
-from tradeagent.sim.simulator import Costs, Leg, TradeState
+from tradeagent.sim.simulator import Costs, Leg, TradeState, entry_fee_rate
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,7 @@ class ExitReport:
     reason: str
     legs: list[Leg]  # every partial and final exit, per unit of quantity
     funding_per_unit: float  # positive = cost
+    entry_fee_rate: float  # taker for market entries, maker for limit entries
 
 
 class Broker(Protocol):
@@ -53,10 +54,11 @@ class PaperBroker:
         if row["status"] != "closed":
             return None
         state = TradeState.from_json(json.loads(row["state_json"]))
-        return ExitReport(row["exit_time"], state.exit_reason or "closed", state.legs, state.funding_per_unit)
+        return ExitReport(row["exit_time"], state.exit_reason or "closed", state.legs, state.funding_per_unit,
+                          entry_fee_rate(state, self.costs))
 
     def close_now(self, trade_id: int, time: int, price: float) -> ExitReport:
         state = TradeState.from_json(json.loads(self._trade(trade_id)["state_json"]))
         fill = price * (1 - state.sign * self.costs.slippage)
         legs = list(state.legs) + [Leg(time, price, fill, state.remaining, self.costs.taker_fee, "kill switch")]
-        return ExitReport(time, "kill switch", legs, state.funding_per_unit)
+        return ExitReport(time, "kill switch", legs, state.funding_per_unit, entry_fee_rate(state, self.costs))

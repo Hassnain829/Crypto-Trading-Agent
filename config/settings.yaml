@@ -25,6 +25,7 @@ tradingview:
   read_delay_s: 3                # read this many seconds after a candle closes
   prepare_timeout_s: 30          # max wait for a chart to become ready
   stuck_reload_after_s: 240      # reload a tab whose chart stays in "loading" this long
+  draw_trades: true              # draw paper trades (entry, stop, target, result) on the AGENT charts
   layouts:                       # saved layout name -> layout id (from the chart URL)
     AGENT-XRP: "K7xX5RYP"
     AGENT-LINK: "CztsiO1R"
@@ -32,8 +33,8 @@ tradingview:
     AGENT-HTF: "9yUw9zox"
 
 market_data:                     # Binance candles used to track shadow trades (never for indicators)
-  history_days: 35
-  candle_timeframes: ["1m", "5m", "15m"]
+  history_days: 120               # enough for the 15m charts' 10,000-bar TradingView history
+  candle_timeframes: ["1m", "5m", "15m", "1h"]   # 1h: stops and setups on the 1h chart
 
 shadow:
   setups: config/setups.yaml     # baseline rules and the variants tested beside it
@@ -53,7 +54,7 @@ paper_account:                   # live-like simulation, same rules as live
   leverage_cap: 10
 
 goal:                            # go-live gate (proposed; editable later in the dashboard)
-  min_trades: 150
+  min_trades: 100                # the baseline's forward shadow trades (every signal); ~16-17 days at ~6 a day
   min_days: 14
   min_expectancy_r: 0.10
   min_profit_factor: 1.3

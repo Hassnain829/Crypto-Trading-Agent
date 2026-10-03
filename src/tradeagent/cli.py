@@ -35,9 +35,11 @@ def main(argv: list[str] | None = None) -> int:
     ver.add_argument("--count", type=int, default=20)
     commands.add_parser("agent", help="run the full agent 24/7: reader + market data + shadow engine (Ctrl+C to stop)")
     commands.add_parser("market-sync", help="sync Binance candles, funding and market info now")
-    commands.add_parser("backfill-snapshots", help="store snapshots for the history loaded in TradingView")
+    bf = commands.add_parser("backfill-snapshots", help="store snapshots for the history loaded in TradingView")
+    bf.add_argument("--bars", type=int, help="load this much history on every chart first (Essential: up to 10000)")
     commands.add_parser("shadow-run", help="process new snapshots and move open shadow trades forward once")
-    commands.add_parser("shadow-report", help="results per variant in the exploration book")
+    sr = commands.add_parser("shadow-report", help="results per variant in the exploration book")
+    sr.add_argument("--halves", action="store_true", help="also show each half of the history (stability check)")
     reset = commands.add_parser("shadow-reset", help="delete exploration trades so history can be replayed")
     reset.add_argument("--yes", action="store_true")
     trades = commands.add_parser("trades", help="list shadow trades (or one trade in detail with --id)")
@@ -48,8 +50,11 @@ def main(argv: list[str] | None = None) -> int:
     vt = commands.add_parser("verify-trades", help="re-compute random shadow trades independently from raw data")
     vt.add_argument("--count", type=int, default=20)
     commands.add_parser("paper-report", help="paper account results and the go-live gate")
-    pr = commands.add_parser("paper-reset", help="delete the paper account history so it can be replayed")
+    pr = commands.add_parser("paper-reset", help="delete the paper account history (replay, or --from-now)")
     pr.add_argument("--yes", action="store_true")
+    pr.add_argument("--from-now", action="store_true", help="restart at the starting balance, new signals only")
+    dr = commands.add_parser("draw-trades", help="draw the paper trades on the TradingView charts now")
+    dr.add_argument("--clear", action="store_true", help="remove every drawing the agent made")
     ks = commands.add_parser("kill-switch", help="show or set the kill switch")
     ks.add_argument("mode", nargs="?", choices=["off", "pause", "close_all"])
 
@@ -83,11 +88,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "market-sync":
         return shadow.market_sync()
     if args.command == "backfill-snapshots":
-        return shadow.backfill()
+        return shadow.backfill(args.bars)
     if args.command == "shadow-run":
         return shadow.shadow_run()
     if args.command == "shadow-report":
-        return shadow.shadow_report()
+        return shadow.shadow_report(args.halves)
     if args.command == "shadow-reset":
         return shadow.shadow_reset(args.yes)
     if args.command == "trades":
@@ -97,7 +102,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "paper-report":
         return shadow.paper_report()
     if args.command == "paper-reset":
-        return shadow.paper_reset(args.yes)
+        return shadow.paper_reset(args.yes, args.from_now)
+    if args.command == "draw-trades":
+        return shadow.draw_trades(args.clear)
     if args.command == "kill-switch":
         return shadow.kill_switch(args.mode)
     parser.error(f"unknown command: {args.command}")

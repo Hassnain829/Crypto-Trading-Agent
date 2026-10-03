@@ -55,6 +55,7 @@ class TradingViewConfig(_Section):
     read_delay_s: float = Field(default=3.0, ge=0, le=60)
     prepare_timeout_s: float = Field(default=30.0, ge=5, le=300)
     stuck_reload_after_s: float = Field(default=240.0, ge=30)
+    draw_trades: bool = True  # draw the paper account's trades on the AGENT charts (synced to all layouts)
     layouts: dict[str, str] = Field(min_length=1)
 
     @field_validator("layouts")

@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import time
 from collections import Counter
 from typing import Any
 
@@ -21,7 +22,7 @@ from tradeagent.config import Settings
 from tradeagent.journal.db import now_ms
 from tradeagent.market.candles import tf_ms
 from tradeagent.setups.config import SetupParams, Variant
-from tradeagent.sim.simulator import Costs, open_trade
+from tradeagent.sim.simulator import Costs, TradeState, open_trade
 
 log = logging.getLogger("tradeagent.engine")
 
@@ -89,7 +90,7 @@ class SetupEngine:
                     if entry_time > newest_1m:
                         break  # wait until the entry candle is closed and synced
                     entry = self.conn.execute(
-                        "SELECT open FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?",
+                        "SELECT open, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?",
                         (symbol, entry_time),
                     ).fetchone()
                     with self.conn:  # one transaction per candle: restart-safe
@@ -98,12 +99,12 @@ class SetupEngine:
                         else:
                             for v in self.variants:
                                 if tf in v.params.timeframes:
-                                    self._on_candle(v, symbol, tf, row, entry["open"], counts)
+                                    self._on_candle(v, symbol, tf, row, entry, counts)
                         self._set_state(key, row["bar_time"])
                     counts["candles"] += 1
         return counts
 
-    def _on_candle(self, v: Variant, symbol: str, tf: str, row: sqlite3.Row, entry_ref: float, counts: Counter[str]) -> None:
+    def _on_candle(self, v: Variant, symbol: str, tf: str, row: sqlite3.Row, entry: sqlite3.Row, counts: Counter[str]) -> None:
         p = v.params
         values = json.loads(row["values_json"])
         trigger_values = values.get(p.trigger.indicator) or {}
@@ -121,6 +122,8 @@ class SetupEngine:
                     (v.id, symbol, tf, side, row["bar_time"], row["signal_version"]),
                 )
                 counts["triggers"] += cur.rowcount
+                if p.exit.opposite_signal:
+                    self._schedule_exits(v, symbol, tf, opposite, row["bar_time"] + tf_ms(tf), counts)
 
         step = tf_ms(tf)
         pending = self.conn.execute(
@@ -133,7 +136,7 @@ class SetupEngine:
                 self.conn.execute("UPDATE setups SET status = 'expired' WHERE id = ?", (setup["id"],))
                 counts["expired"] += 1
             elif self._confirmed(p, setup["side"], values, row):
-                self._open_trade(v, setup, symbol, tf, row, values, entry_ref, counts)
+                self._open_trade(v, setup, symbol, tf, row, values, entry, counts)
                 self.conn.execute(
                     "UPDATE setups SET status = 'confirmed', confirm_time = ? WHERE id = ?", (row["bar_time"], setup["id"])
                 )
@@ -151,6 +154,20 @@ class SetupEngine:
                 return False
         return True
 
+    def _schedule_exits(self, v: Variant, symbol: str, tf: str, side: str, at: int, counts: Counter[str]) -> None:
+        """An opposite trigger closes this variant's open `side` trades on this chart at market, at `at`."""
+        for trade in self.conn.execute(
+            "SELECT id, state_json FROM trades WHERE book = ? AND variant_id = ? AND symbol = ? AND timeframe = ?"
+            " AND side = ? AND status = 'open' AND entry_time < ?",
+            (BOOK, v.id, symbol, tf, side, at),
+        ).fetchall():
+            state = TradeState.from_json(json.loads(trade["state_json"]))
+            if state.exit_at is None or state.exit_at > at:
+                state.exit_at = at
+                self.conn.execute("UPDATE trades SET state_json = ?, updated_at = ? WHERE id = ?",
+                                  (json.dumps(state.to_json()), now_ms(), trade["id"]))
+                counts["exits_scheduled"] += 1
+
     def _htf_trend(self, symbol: str, timeframe: str, at: int) -> str | None:
         """Zero Lag trend of the newest closed higher-timeframe candle at `at` (None if missing or stale)."""
         step = tf_ms(timeframe)
@@ -165,11 +182,15 @@ class SetupEngine:
 
     def _open_trade(
         self, v: Variant, setup: sqlite3.Row, symbol: str, tf: str, row: sqlite3.Row,
-        values: dict[str, Any], entry_ref: float, counts: Counter[str],
+        values: dict[str, Any], entry: sqlite3.Row, counts: Counter[str],
     ) -> None:
         p = v.params
         side = setup["side"]
         sign = 1 if side == "long" else -1
+        entry_ref = entry["open"]
+        limit = p.entry.mode == "limit"
+        # A limit order at the entry price fills only if the entry minute trades strictly through it.
+        filled = not limit or (entry["low"] < entry_ref if sign > 0 else entry["high"] > entry_ref)
         trend = "bull" if side == "long" else "bear"
         entry_time = row["bar_time"] + tf_ms(tf)
 
@@ -186,6 +207,21 @@ class SetupEngine:
             stop = min(c["low"] for c in recent) if sign > 0 else max(c["high"] for c in recent)
             if sign * (entry_ref - stop) <= 0:
                 problems.append("stop on the wrong side of the entry")
+        # The chart's swing sets the target (reference risk); anchor and multiplier only move the stop.
+        reference = abs(entry_ref - stop) if stop is not None and not problems else None
+        if reference is not None and p.stop.anchor == "1h":
+            hourly = self.conn.execute(
+                "SELECT high, low FROM candles WHERE symbol = ? AND timeframe = '1h' AND open_time + 3600000 <= ?"
+                " ORDER BY open_time DESC LIMIT ?",
+                (symbol, entry_time, p.stop.lookback),
+            ).fetchall()
+            if len(hourly) < p.stop.lookback:
+                problems.append("not enough 1h candles for the stop")
+            else:  # beyond the 1h swing, and never closer than the chart's own swing
+                level = min(c["low"] for c in hourly) if sign > 0 else max(c["high"] for c in hourly)
+                stop = min(stop, level) if sign > 0 else max(stop, level)
+        if reference is not None and p.stop.multiplier != 1.0:
+            stop = entry_ref - sign * p.stop.multiplier * abs(entry_ref - stop)
 
         htf = {name: self._htf_trend(symbol, name, entry_time) for name in ("1h", "4h")}
         failed: list[str] = []
@@ -197,12 +233,21 @@ class SetupEngine:
             macd = (values.get("atp_macd") or {}).get("macd")
             if macd is None or sign * macd <= 0:
                 failed.append("macd_trend")
-        if p.filters.htf != "none":
+        if p.filters.htf == "against_4h":
+            if htf["4h"] is None or htf["4h"] == trend:
+                failed.append("htf_against_4h")
+        elif p.filters.htf != "none":
             needed = ["1h"] if p.filters.htf == "1h" else ["1h", "4h"]
             if any(htf[name] != trend for name in needed):
                 failed.append(f"htf_{p.filters.htf}")
-        if p.filters.min_stop_pct > 0 and stop is not None and abs(entry_ref - stop) / entry_ref * 100 < p.filters.min_stop_pct:
+        if p.filters.min_stop_pct > 0 and reference is not None and reference / entry_ref * 100 < p.filters.min_stop_pct:
             failed.append("min_stop_pct")
+        if p.filters.zl_own and zerolag_trend(values) != trend:
+            failed.append("zl_own")
+        if p.filters.session_utc is not None:
+            start, end = p.filters.session_utc
+            if not start <= time.gmtime(entry_time / 1000).tm_hour < end:
+                failed.append("session")
 
         mode = p.exit.mode
         if mode == "htf_rule":
@@ -218,12 +263,19 @@ class SetupEngine:
         if problems:
             status, taken, reason, state, target = "invalid", 0, "; ".join(problems), {}, None
             stop_value = stop if stop is not None else entry_ref
+        elif not filled:
+            status, taken, reason, state, target = "missed", int(not failed), ", ".join([*failed, "limit not filled"]), {}, None
+            stop_value = stop
         else:
-            assert stop is not None
+            assert stop is not None and reference is not None
+            scale = reference / abs(entry_ref - stop)  # 1 unless the stop was moved beyond the chart's swing
             sim = open_trade(
                 side=side, mode=mode, entry_time=entry_time, entry_ref=entry_ref, stop=stop,
-                take_profit_r=p.exit.take_profit_r, partial_r=p.exit.partial_r,
+                take_profit_r=p.exit.take_profit_r * scale, partial_r=p.exit.partial_r * scale,
                 partial_fraction=p.exit.partial_fraction, trail_lookback=p.exit.trail_lookback, costs=self.costs,
+                breakeven_r=p.exit.breakeven_r,
+                time_stop_at=entry_time + p.exit.max_candles * tf_ms(tf) if p.exit.max_candles else None,
+                limit_entry=limit,
             )
             status, taken, reason, state, target = "open", int(not failed), ", ".join(failed) or None, sim.to_json(), sim.target
             stop_value = stop
@@ -242,5 +294,5 @@ class SetupEngine:
             ),
         )
         if cur.rowcount:
-            kind = "invalid" if status == "invalid" else ("taken" if taken else "counterfactual")
+            kind = status if status in ("invalid", "missed") else ("taken" if taken else "counterfactual")
             counts[f"trades_{kind}"] += 1

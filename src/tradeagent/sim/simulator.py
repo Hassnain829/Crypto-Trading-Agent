@@ -58,6 +58,12 @@ class TradeState:
     closed: bool = False
     exit_reason: str | None = None
     last_time: int | None = None  # open time of the last processed 1m candle
+    breakeven_r: float | None = None  # move the stop to break-even plus fees once the price went this far (R)
+    breakeven_done: bool = False
+    exit_at: int | None = None  # scheduled market exit (opposite signal): open time of that 1m candle
+    time_stop_at: int | None = None  # market exit at this 1m open if the trade is still open (time stop)
+    entry_fee_rate: float | None = None  # None = taker (market entry); the maker fee for a limit entry
+    no_target_until: int | None = None  # limit entry: no profit exit inside the minute the order filled
 
     @property
     def sign(self) -> int:
@@ -88,6 +94,9 @@ def open_trade(
     partial_fraction: float,
     trail_lookback: int,
     costs: Costs,
+    breakeven_r: float | None = None,
+    time_stop_at: int | None = None,
+    limit_entry: bool = False,
 ) -> TradeState:
     if mode not in ("fixed", "hybrid"):
         raise ValueError(f"unknown exit mode {mode!r}")
@@ -100,7 +109,7 @@ def open_trade(
         mode=mode,
         entry_time=entry_time,
         entry_ref=entry_ref,
-        entry_fill=entry_ref * (1 + sign * costs.slippage),
+        entry_fill=entry_ref if limit_entry else entry_ref * (1 + sign * costs.slippage),
         stop_initial=stop,
         stop=stop,
         target=entry_ref + sign * take_profit_r * risk if mode == "fixed" else None,
@@ -109,6 +118,10 @@ def open_trade(
         trail_lookback=trail_lookback,
         best=entry_ref,
         worst=entry_ref,
+        breakeven_r=breakeven_r,
+        time_stop_at=time_stop_at,
+        entry_fee_rate=costs.maker_fee if limit_entry else None,
+        no_target_until=entry_time if limit_entry else None,
     )
 
 
@@ -143,16 +156,28 @@ def step(state: TradeState, candle: Candle, costs: Costs) -> None:
         level = state.target if state.target is not None else (None if state.partial_done else state.partial_price)
         if level is not None and _touched(state, level, h, l):
             state.ambiguous = True
-        reason = "trail" if state.partial_done else "stop"
+        reason = "trail" if state.partial_done else "breakeven" if state.breakeven_done else "stop"
         _exit(state, t, o if gapped else state.stop, state.remaining, costs.taker_fee, reason, costs, market=True)
+    elif state.no_target_until is not None and t <= state.no_target_until:
+        pass  # the limit order filled somewhere inside this minute: a profit exit after it is not provable
     elif state.target is not None and _touched(state, state.target, h, l):
         _exit(state, t, state.target, state.remaining, costs.maker_fee, "target", costs, market=False)
     elif state.partial_price is not None and not state.partial_done and _touched(state, state.partial_price, h, l):
         _exit(state, t, state.partial_price, state.partial_fraction, costs.maker_fee, "partial", costs, market=False)
         state.partial_done = True
-        breakeven = state.entry_fill * (1 + state.sign * (2 * costs.taker_fee + costs.slippage))
-        state.stop = max(state.stop, breakeven) if state.sign > 0 else min(state.stop, breakeven)
+        _move_to_breakeven(state, costs)
+    if (state.breakeven_r is not None and not state.closed and not state.breakeven_done
+            and state.sign * (state.best - state.entry_ref) >= state.breakeven_r * state.risk):
+        # Applied after the candle: inside one 1m candle the order of high and low is unknown.
+        _move_to_breakeven(state, costs)
+        state.breakeven_done = True
     state.last_time = t
+
+
+def _move_to_breakeven(state: TradeState, costs: Costs) -> None:
+    """Stop to the entry plus both fees and the exit slippage (never moved back)."""
+    breakeven = state.entry_fill * (1 + state.sign * (2 * costs.taker_fee + costs.slippage))
+    state.stop = max(state.stop, breakeven) if state.sign > 0 else min(state.stop, breakeven)
 
 
 def trail(state: TradeState, closed_candles: list[Candle]) -> None:
@@ -181,6 +206,10 @@ def close_now(state: TradeState, time: int, price: float, costs: Costs, reason: 
         state.last_time = time
 
 
+def entry_fee_rate(state: TradeState, costs: Costs) -> float:
+    return state.entry_fee_rate if state.entry_fee_rate is not None else costs.taker_fee
+
+
 def results(state: TradeState, costs: Costs) -> dict[str, float]:
     """Trade outcome in R (planned risk). r_net = r_gross - slippage_r - fees_r - funding_r."""
     risk, sign = state.risk, state.sign
@@ -188,7 +217,7 @@ def results(state: TradeState, costs: Costs) -> dict[str, float]:
     slippage = sign * (state.entry_fill - state.entry_ref) + sum(
         sign * (leg.ref - leg.fill) * leg.fraction for leg in state.legs
     )
-    fees = state.entry_fill * costs.taker_fee + sum(leg.fill * leg.fee_rate * leg.fraction for leg in state.legs)
+    fees = state.entry_fill * entry_fee_rate(state, costs) + sum(leg.fill * leg.fee_rate * leg.fraction for leg in state.legs)
     out = {
         "r_gross": gross / risk,
         "slippage_r": slippage / risk,
