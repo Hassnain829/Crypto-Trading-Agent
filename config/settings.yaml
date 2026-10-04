@@ -26,6 +26,7 @@ tradingview:
   prepare_timeout_s: 30          # max wait for a chart to become ready
   stuck_reload_after_s: 240      # reload a tab whose chart stays in "loading" this long
   draw_trades: true              # draw paper trades (entry, stop, target, result) on the AGENT charts
+  timezone: system               # time axis of the AGENT charts and dashboard times: system (this PC's) or e.g. Asia/Karachi
   layouts:                       # saved layout name -> layout id (from the chart URL)
     AGENT-XRP: "K7xX5RYP"
     AGENT-LINK: "CztsiO1R"
@@ -52,6 +53,19 @@ paper_account:                   # demo account: takes every baseline signal (th
   max_positions_per_coin: null   # null = no limit (live: e.g. 1)
   daily_loss_stop: null          # null = off; live: 0.10-0.12 of the day's starting balance
   leverage_cap: 10               # each position is sized down to the free margin at 10x
+
+live_account:                    # limits for live trading (Phase 6); edit them in the dashboard before going live
+  exchange: binance              # binance | bitget | mexc (API keys: dashboard > Settings > Exchanges)
+  starting_balance: 150
+  risk_per_trade: 0.02
+  max_positions: 2
+  max_positions_per_coin: 1
+  daily_loss_stop: 0.10          # 10% of the day's starting balance
+  leverage_cap: 10
+
+research:                        # daily Claude research run (Phase 5)
+  enabled: false
+  daily_time_utc: "06:00"
 
 goal:                            # go-live gate (proposed; editable later in the dashboard)
   min_trades: 100                # the baseline's forward shadow trades (every signal); ~16-17 days at ~6 a day

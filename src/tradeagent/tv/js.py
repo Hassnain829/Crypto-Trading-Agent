@@ -259,6 +259,30 @@ _OPEN_LAYOUT_TAB = """async function (layoutId) {
 
 _RELOAD = """function () { setTimeout(function () { location.reload(); }, 100); return true; }"""
 
+# Time axis of every chart in the tab. 'system' = the computer's zone as TradingView itself sees it. A zone that
+# TradingView does not list falls back to a listed zone with the same UTC offset now, else UTC. Display only:
+# intraday candles follow the exchange session, so bars, indicator values and bar times stay the same.
+_SET_TIMEZONE = """function (wanted) {
+  var api = window.TradingViewApi;
+  var count = api._chartWidgetCollection.getAll().length;
+  var system = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  var target = wanted === 'system' ? system : wanted;
+  var out = { wanted: wanted, target: target, changed: 0, charts: count };
+  for (var i = 0; i < count; i++) {
+    var tz = api.chart(i).getTimezoneApi();
+    if (i === 0) {
+      var listed = tz.availableTimezones();
+      if (!listed.some(function (z) { return z.id === target; })) {
+        var offset = wanted === 'system' ? -new Date().getTimezoneOffset() * 60000 : null;
+        var same = listed.filter(function (z) { return offset !== null && (z.offset || 0) === offset && z.id !== 'exchange'; })[0];
+        out.target = same ? same.id : 'Etc/UTC';
+      }
+    }
+    if (tz.getTimezone().id !== out.target) { tz.setTimezone(out.target); out.changed++; }
+  }
+  return out;
+}"""
+
 
 def _call(fn: str, *args: Any) -> str:
     return "(" + fn + ")(" + ", ".join(json.dumps(a) for a in args) + ")"
@@ -291,3 +315,7 @@ def open_layout_tab(layout_id: str) -> str:
 
 def reload_tab() -> str:
     return _call(_RELOAD)
+
+
+def set_timezone(wanted: str) -> str:
+    return _call(_SET_TIMEZONE, wanted)

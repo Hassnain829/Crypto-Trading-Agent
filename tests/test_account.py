@@ -315,7 +315,7 @@ def test_the_gate_counts_the_baselines_forward_shadow_trades(world):
     add_trade(conn, "XRP", "long", later + 2 * M1, 2.0, 1.98, later + 50 * M1, target=True, variant=CHALLENGER)
     report = account_report(conn, settings)
     assert report["forward_start"] == start and report["strategy_trades"] == 2  # baseline only, since the start
-    gate = {name: value for name, value, _ok in report["gate"]}
+    gate = {c["name"]: c["value"] for c in report["gate"]}
     assert gate["strategy trades (forward, every signal)"] == f"2 / {settings.goal.min_trades}"
     assert settings.goal.min_trades == 100
 

@@ -29,6 +29,8 @@ from tradeagent.tv.watchdog import Watchdog
 
 log = logging.getLogger("tradeagent.reader")
 
+INPUTS_WAIT_S = 120  # after a TradingView start the indicators of a tab can take a while to load
+
 
 class SignalReader:
     def __init__(
@@ -60,16 +62,51 @@ class SignalReader:
         await self.check_signal_version()
         return actions
 
-    async def check_signal_version(self) -> int:
-        pages = await self.watchdog.pages()
+    def _expected_studies(self, layout_id: str) -> dict[str, set[str]]:
+        """Chart interval -> the indicators its template reads, for one AGENT layout."""
+        overview = layout_id == self.settings.htf_layout
+        timeframes = self.settings.timeframes.overview if overview else self.settings.timeframes.trade
+        return {TV_INTERVAL[tf]: {ind["study"] for ind in self.catalog.js_spec(self.template_for(tf)).values()}
+                for tf in timeframes}
+
+    async def _read_indicator_inputs(self, wait_s: float, poll_s: float) -> dict[str, Any]:
+        """Inputs of the indicators on every AGENT chart.
+
+        Right after TradingView starts, a tab can show its charts before their indicators have loaded. A
+        fingerprint taken then looks like changed settings and starts a false new signal version, so wait until
+        every chart shows all indicators of its template.
+        """
         names = self.catalog.study_names()
-        inputs: dict[str, Any] = {}
-        for name, layout_id in sorted(self.settings.tradingview.layouts.items()):
-            page = pages.get(layout_id)
-            if page is None:
-                raise CDPError(f"layout {name} is not open")
-            for chart in await self.cdp.evaluate(page, js.read_inputs(names)):
-                inputs[f"{name}/{chart['interval']}"] = chart["studies"]
+        deadline = time.monotonic() + wait_s
+        while True:
+            pages = await self.watchdog.pages()
+            inputs: dict[str, Any] = {}
+            missing: list[str] = []
+            for name, layout_id in sorted(self.settings.tradingview.layouts.items()):
+                page = pages.get(layout_id)
+                if page is None:
+                    missing.append(f"layout {name} is not open")
+                    continue
+                try:
+                    charts = await self.cdp.evaluate(page, js.read_inputs(names))
+                except CDPError as exc:
+                    missing.append(f"{name}: {exc}")
+                    continue
+                found = {chart["interval"]: chart["studies"] for chart in charts}
+                for interval, studies in self._expected_studies(layout_id).items():
+                    absent = sorted(studies - set(found.get(interval, {})))
+                    if absent:
+                        missing.append(f"{name} {interval}: {', '.join(absent)} not loaded")
+                for chart in charts:
+                    inputs[f"{name}/{chart['interval']}"] = chart["studies"]
+            if not missing:
+                return inputs
+            if time.monotonic() >= deadline:
+                raise CDPError("indicator settings could not be read: " + "; ".join(missing))
+            await asyncio.sleep(poll_s)
+
+    async def check_signal_version(self, wait_s: float = INPUTS_WAIT_S, poll_s: float = 3) -> int:
+        inputs = await self._read_indicator_inputs(wait_s, poll_s)
         fingerprint, canonical = settings_fingerprint(inputs)
         version, changed = resolve_signal_version(
             self.conn, self.settings.tradingview.signal_version, fingerprint, canonical

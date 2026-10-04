@@ -34,6 +34,12 @@ def main(argv: list[str] | None = None) -> int:
     ver = commands.add_parser("verify-candles", help="compare stored candles with Binance's candles")
     ver.add_argument("--count", type=int, default=20)
     commands.add_parser("agent", help="run the full agent 24/7: reader + market data + shadow engine (Ctrl+C to stop)")
+    dash = commands.add_parser("dashboard", help="open the web dashboard (http://127.0.0.1:8080)")
+    dash.add_argument("--host", default="127.0.0.1", help="0.0.0.0 makes it reachable from other devices (no password!)")
+    dash.add_argument("--port", type=int, default=8080)
+    dash.add_argument("--no-browser", action="store_true", help="do not open a browser window")
+    dash.add_argument("--no-agent", action="store_true",
+                      help="do not start the agent or restart it after a crash (the Overview buttons still work)")
     commands.add_parser("market-sync", help="sync Binance candles, funding and market info now")
     bf = commands.add_parser("backfill-snapshots", help="store snapshots for the history loaded in TradingView")
     bf.add_argument("--bars", type=int, help="load this much history on every chart first (Essential: up to 10000)")
@@ -59,6 +65,11 @@ def main(argv: list[str] | None = None) -> int:
     ks.add_argument("mode", nargs="?", choices=["off", "pause", "close_all"])
 
     args = parser.parse_args(argv)
+    if args.command == "dashboard":
+        from tradeagent.dashboard.app import run as run_dashboard
+
+        run_dashboard(args.host, args.port, open_browser=not args.no_browser, start_agent=not args.no_agent)
+        return 0
     if args.command == "doctor":
         from tradeagent.doctor import main as doctor_main
 

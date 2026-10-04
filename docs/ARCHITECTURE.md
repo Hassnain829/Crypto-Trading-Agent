@@ -41,7 +41,8 @@ Research pack ──► Claude Code (Pro) ──► proposals
 | Shadow Simulator + Tracker (`sim/`) | Simulates trades on 1m candles with real prices, fees, slippage and funding | 2 ✓ |
 | Agent (`agent.py`) | One process: reader, market data, setup engine, tracker and paper account at every candle close | 2 ✓ |
 | Paper account + Risk Engine (`account/`) | Live-like ledger with all live rules; `PaperBroker` behind the broker interface | 3 ✓ |
-| Dashboard | Monitoring and settings | 4 |
+| Dashboard (`dashboard/`) | Monitoring and control in the browser: six pages, settings with an audit log, exchange keys, live preview | 4 ✓ |
+| Settings store (`settings_store.py`) | Dashboard overrides of settings.yaml, validated and audited; the agent applies them every cycle | 4 ✓ |
 | Research pack + Experiment Manager | Builds reports for Claude; validates and runs experiments | 5 |
 | TradingView MCP server (optional) | Lets Claude Code look at charts during research sessions (needs Node.js) | 5 |
 | Live Broker | Real Binance orders and reconciliation | 6 |
@@ -83,6 +84,7 @@ Tables are added by migrations when each phase designs them.
 | `variants` | Parameters, role (baseline / challenger / retired), parent | 2 ✓ |
 | `engine_state` | Where the setup engine stopped, per coin and timeframe (restart-safe catch-up) | 2 ✓ |
 | `account_state`, `account_trades` | Paper account (live in Phase 6): balance, daily stop, every signal opened or rejected and why, USDT PnL | 3 ✓ |
+| `agent_status`, `baseline_history` | The agent's heartbeat for the dashboard; every strategy version the paper account followed | 4 ✓ |
 | `experiments` | Hypothesis, variable, old and new value, results, decision, lesson | 5 |
 | `lessons` | Research memory | 5 |
 

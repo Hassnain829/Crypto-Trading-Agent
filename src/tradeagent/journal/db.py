@@ -46,6 +46,16 @@ def migrate(conn: sqlite3.Connection) -> list[int]:
     return applied
 
 
+def write_status(conn: sqlite3.Connection, key: str, value: Any) -> None:
+    """Upsert one agent_status row (the agent's heartbeat for the dashboard)."""
+    with conn:
+        conn.execute(
+            "INSERT INTO agent_status (key, value_json, updated_at) VALUES (?, ?, ?)"
+            " ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+            (key, json.dumps(value), now_ms()),
+        )
+
+
 def log_event(
     conn: sqlite3.Connection, level: str, source: str, message: str, data: Any = None
 ) -> int:

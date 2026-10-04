@@ -17,7 +17,7 @@ from typing import Any
 from tradeagent.account.broker import Broker, ExitReport, PaperBroker
 from tradeagent.account.kill_switch import get_kill_switch, set_kill_switch
 from tradeagent.account.rules import MarketLimits, OpenPosition, check_entry, size_position, used_margin
-from tradeagent.config import Settings
+from tradeagent.config import PaperAccountConfig, Settings
 from tradeagent.journal.db import now_ms
 from tradeagent.sim.simulator import Costs
 
@@ -61,10 +61,14 @@ def position_pnl(position: Any, report: ExitReport) -> tuple[float, float, float
 class AccountEngine:
     def __init__(self, settings: Settings, conn: sqlite3.Connection, broker: Broker | None = None) -> None:
         self.settings = settings
-        self.rules = settings.paper_account
         self.conn = conn
         self.costs = Costs(settings.costs.maker_fee, settings.costs.taker_fee, settings.costs.slippage)
         self.broker = broker or PaperBroker(conn, self.costs)
+
+    @property
+    def rules(self) -> PaperAccountConfig:
+        """Read on every use, so a change made in the dashboard applies in the next cycle."""
+        return self.settings.paper_account
 
     # ---- state -------------------------------------------------------------------------------
     def _load(self) -> dict:

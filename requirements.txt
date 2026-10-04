@@ -2,10 +2,12 @@
 # Install: python -m pip install -r requirements.txt -e .
 aiohttp==3.14.3
 ccxt==4.5.85
+nicegui==3.17.1
 numpy==2.5.3
 pandas==3.0.6
 psutil==7.2.2
 pydantic==2.13.5
 python-dotenv==1.2.4
 pyyaml==6.0.3
+tzdata==2026.4
 pytest==9.1.1

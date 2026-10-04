@@ -13,7 +13,7 @@
 | 6 | [Live trading](phases/phase-6-live-trading.md) | Small live account on Binance | Go-live gate + your approval | 2–4 weeks of monitored trading |
 | 7 | [Scale and improve](phases/phase-7-scale-and-improve.md) | More coins, setups and features | 6 | Ongoing |
 
-**Status (2026-10-02):** Phase 0 complete. Phases 1, 2 and 3 built. One `agent` run covers their remaining runtime tests: 48 hours (Phase 1) and 7 days (Phases 2 and 3).
+**Status (2026-10-03):** Phase 0 complete. Phases 1, 2, 3 and 4 built. One `agent` run covers their remaining runtime tests: 48 hours (Phase 1) and 7 days (Phases 2 and 3).
 
 Times are estimates. Building is fast; collecting enough shadow trades is the real clock. The earliest realistic live start is about 6–8 weeks after Phase 0, and only if the go-live gate is met.
 

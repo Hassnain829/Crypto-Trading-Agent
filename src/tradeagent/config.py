@@ -56,7 +56,22 @@ class TradingViewConfig(_Section):
     prepare_timeout_s: float = Field(default=30.0, ge=5, le=300)
     stuck_reload_after_s: float = Field(default=240.0, ge=30)
     draw_trades: bool = True  # draw the paper account's trades on the AGENT charts (synced to all layouts)
+    # Time zone of the AGENT charts' time axis and of the dashboard's times: "system" (this computer's) or an
+    # IANA name such as "Asia/Karachi". Display only: stored times are UTC and candles do not change.
+    timezone: str = "system"
     layouts: dict[str, str] = Field(min_length=1)
+
+    @field_validator("timezone")
+    @classmethod
+    def _known_timezone(cls, value: str) -> str:
+        if value != "system":
+            from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+            try:
+                ZoneInfo(value)
+            except (ZoneInfoNotFoundError, ValueError) as exc:
+                raise ValueError(f"unknown time zone {value!r} (use 'system' or a name like 'Asia/Karachi')") from exc
+        return value
 
     @field_validator("layouts")
     @classmethod
@@ -119,6 +134,17 @@ class GoalConfig(_Section):
     min_snapshot_coverage: float = Field(gt=0, le=1)
 
 
+class LiveAccountConfig(PaperAccountConfig):
+    """Limits for live trading (Phase 6). Edited in the dashboard; the live preview replays trades through them."""
+
+    exchange: Literal["binance", "bitget", "mexc"] = "binance"
+
+
+class ResearchConfig(_Section):
+    enabled: bool = False  # the daily Claude research run (Phase 5)
+    daily_time_utc: str = Field(default="06:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
 class LoggingConfig(_Section):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     file: str = "data/logs/agent.log"
@@ -133,6 +159,11 @@ class JournalConfig(_Section):
 class Secrets(BaseModel):
     binance_api_key: SecretStr | None = None
     binance_api_secret: SecretStr | None = None
+    bitget_api_key: SecretStr | None = None
+    bitget_api_secret: SecretStr | None = None
+    bitget_api_passphrase: SecretStr | None = None
+    mexc_api_key: SecretStr | None = None
+    mexc_api_secret: SecretStr | None = None
 
     @property
     def has_binance_keys(self) -> bool:
@@ -147,7 +178,11 @@ class Settings(_Section):
     shadow: ShadowConfig = Field(default_factory=ShadowConfig)
     costs: CostsConfig
     paper_account: PaperAccountConfig
+    live_account: LiveAccountConfig = Field(default_factory=lambda: LiveAccountConfig(
+        starting_balance=150, risk_per_trade=0.02, max_positions=2, max_positions_per_coin=1,
+        daily_loss_stop=0.10, leverage_cap=10))
     goal: GoalConfig
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
 
@@ -207,4 +242,4 @@ def _load_secrets(env_file: Path) -> Secrets:
     def get(name: str) -> str | None:
         return os.environ.get(name) or file_values.get(name) or None
 
-    return Secrets(binance_api_key=get("BINANCE_API_KEY"), binance_api_secret=get("BINANCE_API_SECRET"))
+    return Secrets(**{field: get(field.upper()) for field in Secrets.model_fields})

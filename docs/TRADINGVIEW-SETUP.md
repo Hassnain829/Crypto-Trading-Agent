@@ -11,7 +11,8 @@ Verified directly on TradingView Desktop (v3.4.1, Microsoft Store build) on 2026
 | AGENT-SOL | `BINANCE:SOLUSDT.P` 5m | `BINANCE:SOLUSDT.P` 15m | Scalp | Symbol on, Interval off |
 | AGENT-HTF | `BINANCE:XRPUSDT.P` 1h | `BINANCE:XRPUSDT.P` 4h | Trend | Symbol on, Interval off |
 
-- All charts: Candles, timezone UTC, autosave on, no Volume indicator.
+- All charts: Candles, autosave on, no Volume indicator.
+- Time zone: the agent sets the AGENT charts to the setting `tradingview.timezone` ("system" = this computer's zone, the default). It only changes the time axis: intraday candles follow the exchange session, so bars, indicator values and the stored times (UTC) stay the same (checked on 2026-10-03: 4h bars stay at 00:00/04:00/08:00 UTC on a UTC+5 chart).
 - The 5th layout slot is free for personal analysis. Do not analyse inside the AGENT layouts; autosave syncs every change.
 
 ## 2. Indicator templates

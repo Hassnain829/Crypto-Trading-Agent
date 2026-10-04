@@ -12,3 +12,6 @@ dist/
 
 # Runtime data: journal database, logs, research output
 data/
+
+# Dashboard runtime storage (theme choice)
+.nicegui/

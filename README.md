@@ -4,7 +4,8 @@ A self-improving crypto scalping agent. It reads signals from TradingView indica
 
 > **Status (2026-10-03):** Phase 0 complete. Phases 1–3 are built: the TradingView signal reader, the shadow engine and the paper account.
 > A strategy review replaced the video's rules (−0.16R per trade over ~100 days) with baseline v2: stops of at least 1.5% and limit-order entries, +0.12R per trade on the same history ([review](docs/research/2026-10-03-strategy-review.md)).
-> Next: the forward run with `agent` (7+ days); the paper account starts fresh at $150.
+> Phase 4 is built: a web dashboard at http://127.0.0.1:8080 (`python -m tradeagent dashboard`).
+> Next: the forward run with `agent` (7+ days); the paper account started fresh at $150.
 
 ## Quick start (Windows, PowerShell)
 
@@ -16,16 +17,18 @@ python -m venv .venv
 # 2. Secrets (only needed from Phase 6)
 Copy-Item .env.example .env
 
-# 3. Start TradingView Desktop with the debug port the agent reads through
-powershell -ExecutionPolicy Bypass -File scripts\launch_tradingview_debug.ps1
-
-# 4. Check that everything is installed and connected
+# 3. Check that everything is installed and connected
 .venv\Scripts\python -m tradeagent doctor
 
-# 5. Run the agent 24/7: reader + Binance data + shadow engine + paper account (Ctrl+C to stop)
-.venv\Scripts\python -m tradeagent agent
+# 4. Start everything: the dashboard (http://127.0.0.1:8080) starts the agent, and the agent opens
+#    TradingView Desktop in debug mode. The dashboard restarts the agent after a crash; Overview > Agent
+#    has Start / Stop / Restart. (`tradeagent agent` alone runs the agent without the dashboard.)
+.venv\Scripts\python -m tradeagent dashboard
 
-# 6. Results
+# 5. Optional: start the dashboard (and so the agent) at every logon
+powershell -ExecutionPolicy Bypass -File scripts\install_startup_tasks.ps1
+
+# 6. Results in the terminal
 .venv\Scripts\python -m tradeagent shadow-report   # every variant in the exploration book
 .venv\Scripts\python -m tradeagent paper-report    # paper account and the go-live gate
 

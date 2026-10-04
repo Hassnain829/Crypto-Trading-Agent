@@ -239,8 +239,8 @@ def paper_report() -> int:
     for issue in r["consistency_issues"]:
         print(f"  CONSISTENCY: {issue}")
     print("\nGo-live gate:")
-    for name, value, ok in r["gate"]:
-        print(f"  [{'x' if ok else ' '}] {name:<42} {value}")
+    for c in r["gate"]:
+        print(f"  [{'x' if c['ok'] else ' '}] {c['name']:<42} {c['value']}")
     print(f"\n{'GATE MET: ready for your approval' if r['gate_met'] else 'Gate not met yet.'}")
     return 0
 
@@ -295,10 +295,19 @@ def draw_trades(clear: bool) -> int:
 
 
 def run_agent() -> int:
-    with _agent(console_log=True) as agent:
-        print("Agent running (reader + shadow engine). Press Ctrl+C to stop.")
-        try:
-            asyncio.run(agent.run())
-        except KeyboardInterrupt:
-            print("Stopped.")
+    from tradeagent.supervisor import InstanceLock, lock_path
+
+    lock = InstanceLock(lock_path(load_settings()))
+    if not lock.acquire(attempts=6):  # a short wait: the dashboard checks the lock by taking it for a moment
+        print("Another agent is already running (data/agent.lock is held); not starting a second one.")
+        return 3
+    try:
+        with _agent(console_log=True) as agent:
+            print("Agent running (reader + shadow engine). Press Ctrl+C to stop.")
+            try:
+                asyncio.run(agent.run())
+            except KeyboardInterrupt:
+                print("Stopped.")
+    finally:
+        lock.release()
     return 0

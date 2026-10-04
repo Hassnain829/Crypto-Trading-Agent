@@ -214,4 +214,34 @@ CREATE TABLE trade_drawings (              -- paper trades drawn on the TradingV
 ALTER TABLE account_state ADD COLUMN started_at INTEGER;
 """,
     ),
+    (
+        8,
+        "dashboard",
+        """
+CREATE TABLE agent_status (                -- the agent's heartbeat and start info, read by the dashboard
+    key TEXT PRIMARY KEY,                  -- agent | heartbeat
+    value_json TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE baseline_history (            -- every strategy version the paper account followed
+    version TEXT PRIMARY KEY,              -- v0, v1, v2, ...
+    variant_id TEXT,
+    adopted_at INTEGER NOT NULL,           -- ms UTC
+    summary TEXT NOT NULL,
+    expectancy_r REAL,                     -- net R per trade on the evidence it was chosen on
+    trades INTEGER,
+    paper_return_pct REAL,                 -- the paper account replayed on the same history
+    evidence TEXT
+);
+-- The versions chosen before this table existed (docs/research/2026-10-03-strategy-review.md, ~100 days).
+INSERT INTO baseline_history VALUES
+    ('v0', NULL, 1790899200000, 'The video checklist: Q-Trend arrow, Klinger colour and candle colour; 10-candle swing stop; 1.5R target; market entry',
+     -0.159, 1104, -52.7, 'Strategy review 2026-10-03, ~100 days of history'),
+    ('v1', NULL, 1790985600000, 'v0, but skip setups whose swing stop is closer than 1% (costs eat tight stops)',
+     -0.030, 590, -18.6, 'Strategy review 2026-10-03, ~100 days of history'),
+    ('v2', 'v0-773ea9', 1790989200000, 'Stops of at least 1.5% and limit-order entries (maker fee, no slippage)',
+     0.116, 260, 19.5, 'Strategy review 2026-10-03, ~100 days of history; positive in all four sub-periods');
+""",
+    ),
 ]

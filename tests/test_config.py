@@ -90,3 +90,11 @@ def test_per_coin_limit_cannot_exceed_the_total(repo_root):
     raw["paper_account"].update(max_positions=2, max_positions_per_coin=3)
     with pytest.raises(ValidationError):
         Settings.model_validate(raw)
+
+
+def test_timezone_must_be_system_or_a_known_zone(repo_root):
+    s = load_settings(repo_root)
+    assert s.tradingview.timezone == "system"
+    s.tradingview.model_validate({**s.tradingview.model_dump(), "timezone": "Asia/Karachi"})
+    with pytest.raises(ValueError):
+        s.tradingview.model_validate({**s.tradingview.model_dump(), "timezone": "Mars/Base"})

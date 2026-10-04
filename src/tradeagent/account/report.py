@@ -59,8 +59,11 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
     """The paper account (money view) and the go-live gate.
 
     The gate's sample (trade count, expectancy, profit factor) is the baseline's forward shadow trades, which
-    include every signal. Net PnL and drawdown come from the paper account, which follows the live limits.
+    include every signal. Net PnL and drawdown come from the live preview: the same trades replayed through
+    the live limits (settings live_account), because the demo account itself may have no limits.
     """
+    from tradeagent.account.preview import live_preview
+
     start = settings.paper_account.starting_balance
     state = conn.execute("SELECT balance, started_at FROM account_state WHERE account = ?", (ACCOUNT,)).fetchone()
     balance = state["balance"] if state else start
@@ -113,19 +116,35 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
     snapshot_coverage = sum(r["ok"] for r in rows) / expected if expected else 0.0
 
     goal = settings.goal
+    preview = live_preview(conn, settings, settings.live_account, since=started_at)
+
+    def ratio(value: float | None, target: float) -> float:
+        if value is None or target <= 0:
+            return 0.0
+        return max(0.0, min(1.0, value / target))
+
+    def check(name: str, value: str, ok: bool, progress: float) -> dict[str, Any]:
+        return {"name": name, "value": value, "ok": ok, "progress": 1.0 if ok else min(progress, 0.99)}
+
+    preview_dd = preview["max_drawdown"]
     gate = [
-        ("strategy trades (forward, every signal)", f"{len(sample)} / {goal.min_trades}", len(sample) >= goal.min_trades),
-        ("days running", f"{days:.1f} / {goal.min_days}", days >= goal.min_days),
-        ("strategy expectancy", f"{sample_exp:+.3f}R / {goal.min_expectancy_r:+.2f}R" if sample_exp is not None else "-",
-         sample_exp is not None and sample_exp >= goal.min_expectancy_r),
-        ("strategy profit factor", f"{sample_pf:.2f} / {goal.min_profit_factor}" if sample_pf is not None else "-",
-         sample_pf is not None and sample_pf >= goal.min_profit_factor),
-        ("paper net PnL > 0", f"{balance - start:+.2f} USDT", balance > start),
-        ("paper max drawdown", f"{max_dd:.1%} / {goal.max_drawdown:.0%}", max_dd <= goal.max_drawdown),
-        ("snapshot coverage (7 days, live)", f"{snapshot_coverage:.1%} / {goal.min_snapshot_coverage:.0%}",
-         snapshot_coverage >= goal.min_snapshot_coverage),
-        ("every trade explained (snapshot + reason)", f"{unexplained} without", unexplained == 0),
-        ("paper = exploration (consistency)", f"{checked - len(issues)}/{checked} match", not issues),
+        check("strategy trades (forward, every signal)", f"{len(sample)} / {goal.min_trades}",
+              len(sample) >= goal.min_trades, ratio(len(sample), goal.min_trades)),
+        check("days running", f"{days:.1f} / {goal.min_days}", days >= goal.min_days, ratio(days, goal.min_days)),
+        check("strategy expectancy",
+              f"{sample_exp:+.3f}R / {goal.min_expectancy_r:+.2f}R" if sample_exp is not None else "-",
+              sample_exp is not None and sample_exp >= goal.min_expectancy_r, ratio(sample_exp, goal.min_expectancy_r)),
+        check("strategy profit factor", f"{sample_pf:.2f} / {goal.min_profit_factor}" if sample_pf is not None else "-",
+              sample_pf is not None and sample_pf >= goal.min_profit_factor, ratio(sample_pf, goal.min_profit_factor)),
+        check("live preview net PnL > 0", f"{preview['net_pnl']:+.2f} USDT ({preview['taken']} trades)",
+              preview["net_pnl"] > 0 and preview["taken"] > 0, 0.0),
+        check("live preview max drawdown", f"{preview_dd:.1%} / {goal.max_drawdown:.0%}",
+              preview_dd <= goal.max_drawdown and preview["taken"] > 0,
+              goal.max_drawdown / preview_dd if preview_dd > 0 else 0.0),
+        check("snapshot coverage (7 days, live)", f"{snapshot_coverage:.1%} / {goal.min_snapshot_coverage:.0%}",
+              snapshot_coverage >= goal.min_snapshot_coverage, ratio(snapshot_coverage, goal.min_snapshot_coverage)),
+        check("every trade explained (snapshot + reason)", f"{unexplained} without", unexplained == 0, 0.0),
+        check("paper = exploration (consistency)", f"{checked - len(issues)}/{checked} match", not issues, 0.0),
     ]
     return {
         "starting_balance": start,
@@ -145,6 +164,11 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
         "forward_start": started_at,
         "strategy_trades": len(sample),
         "strategy_expectancy_r": sample_exp,
+        "strategy_profit_factor": sample_pf,
+        "strategy_win_rate": sum(1 for r in sample if r > 0) / len(sample) if sample else None,
+        "days_running": days,
+        "snapshot_coverage": snapshot_coverage,
+        "live_preview": preview,
         "gate": gate,
-        "gate_met": all(ok for _, _, ok in gate),
+        "gate_met": all(c["ok"] for c in gate),
     }

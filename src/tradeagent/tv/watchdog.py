@@ -13,6 +13,8 @@ from tradeagent.tv.cdp import CDPError, ChartPage, TradingViewCDP
 
 log = logging.getLogger("tradeagent.watchdog")
 
+RESTORE_WAIT_S = 90  # after a start TradingView reopens its last tabs by itself, which takes up to about a minute
+
 
 def pages_by_layout(pages: list[ChartPage]) -> dict[str, ChartPage]:
     """First open tab for every layout id. The order of /json/list changes, so never rely on it."""
@@ -29,6 +31,7 @@ class Watchdog:
         self.cdp = cdp
         self.required = list(settings.tradingview.layouts.values())
         self._stuck_since: dict[str, float] = {}
+        self._duplicates: set[str] = set()
 
     async def pages(self) -> dict[str, ChartPage]:
         return pages_by_layout(await self.cdp.chart_pages())
@@ -58,6 +61,42 @@ class Watchdog:
             await asyncio.sleep(2)
         return None
 
+    async def _wait_for_restored_tabs(self, timeout_s: float, poll_s: float = 2) -> None:
+        """Wait until TradingView has reopened the AGENT layouts itself, so none is opened a second time."""
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            try:
+                pages = await self.pages()
+                if all(layout_id in pages for layout_id in self.required):
+                    return
+            except CDPError:
+                pass
+            await asyncio.sleep(poll_s)
+
+    async def _report_duplicates(self) -> None:
+        """Warn once when an AGENT layout is open in more than one tab (more memory; the copies save over each other)."""
+        layouts = [page.layout_id for page in await self.cdp.chart_pages()]
+        duplicates = {layout_id for layout_id in self.required if layouts.count(layout_id) > 1}
+        for layout_id in sorted(duplicates - self._duplicates):
+            log.warning("layout %s is open in %d tabs; close the extra tabs in TradingView",
+                        layout_id, layouts.count(layout_id))
+        self._duplicates = duplicates
+
+    async def _apply_timezone(self, pages: dict[str, ChartPage]) -> None:
+        """Every AGENT chart shows the time zone of the setting tradingview.timezone ('system' = this computer's).
+        Only the time axis changes; a chart already in that zone is left alone."""
+        wanted = self.settings.tradingview.timezone
+        for layout_id in self.required:
+            page = pages.get(layout_id)
+            if page is None:
+                continue
+            try:
+                result = await self.cdp.evaluate(page, js.set_timezone(wanted))
+            except CDPError:
+                continue  # tab still loading; tried again next cycle
+            if isinstance(result, dict) and result.get("changed"):
+                log.info("layout %s: %d chart(s) now show times in %s", layout_id, result["changed"], result["target"])
+
     async def ensure(self) -> list[str]:
         """Repair what is broken. Returns the actions taken (empty when everything was fine). Never raises
         for a missing tab: the reader then records that problem and the next cycle tries again."""
@@ -66,6 +105,7 @@ class Watchdog:
             log.warning("TradingView debug port not reachable; starting TradingView")
             result = await asyncio.to_thread(self._launch)
             actions.append(f"started TradingView ({result})")
+            await self._wait_for_restored_tabs(RESTORE_WAIT_S)
 
         pages = await self.pages()
         missing = [layout_id for layout_id in self.required if layout_id not in pages]
@@ -83,6 +123,8 @@ class Watchdog:
                     await asyncio.sleep(3)
                 await asyncio.sleep(5)
                 pages = await self.pages()
+        await self._report_duplicates()
+        await self._apply_timezone(pages)
 
         for layout_id in self.required:
             page = pages.get(layout_id)
