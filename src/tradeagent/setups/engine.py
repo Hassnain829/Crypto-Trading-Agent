@@ -20,7 +20,7 @@ from typing import Any
 
 from tradeagent.config import Settings
 from tradeagent.journal.db import now_ms
-from tradeagent.market.candles import tf_ms
+from tradeagent.market.candles import SETTLE_MS, tf_ms
 from tradeagent.setups.config import SetupParams, Variant
 from tradeagent.sim.simulator import Costs, TradeState, open_trade
 
@@ -93,6 +93,8 @@ class SetupEngine:
                         "SELECT open, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?",
                         (symbol, entry_time),
                     ).fetchone()
+                    if entry is None and entry_time > newest_1m - SETTLE_MS:
+                        break  # a quiet minute gets its flat candle once settled (sparse venues): wait for it
                     with self.conn:  # one transaction per candle: restart-safe
                         if entry is None:
                             counts["no_entry_candle"] += 1
@@ -284,13 +286,13 @@ class SetupEngine:
             """
             INSERT OR IGNORE INTO trades (book, variant_id, symbol, timeframe, side, setup_id, signal_version,
                 trigger_time, confirm_time, entry_time, taken, reason, exit_mode, entry_ref, stop_initial, target,
-                status, context_json, state_json, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, context_json, state_json, venue, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 BOOK, v.id, symbol, tf, side, setup["id"], row["signal_version"], setup["trigger_time"],
                 row["bar_time"], entry_time, taken, reason, mode, entry_ref, stop_value, target, status,
-                json.dumps(context, sort_keys=True), json.dumps(state), now, now,
+                json.dumps(context, sort_keys=True), json.dumps(state), self.settings.venue, now, now,
             ),
         )
         if cur.rowcount:

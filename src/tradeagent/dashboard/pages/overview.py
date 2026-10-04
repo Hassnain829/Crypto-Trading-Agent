@@ -61,7 +61,8 @@ def build(store: Store) -> None:
     with ui.row().classes("w-full gap-4 items-stretch"):
         with card("Activity", "Demo trades, warnings and setting changes", classes="flex-[2] min-w-[420px]"):
             feed_box = ui.column().classes("w-full gap-0")
-        with card("Data feeds", "Last TradingView read per chart and the last Binance candle", classes="flex-1 min-w-[300px]"):
+        with card("Data feeds", f"Last TradingView read per chart and the last {store.settings.venue} candle",
+                  classes="flex-1 min-w-[300px]"):
             health_box = ui.column().classes("w-full gap-1")
 
     def confirm_kill(mode: str) -> None:
@@ -170,14 +171,14 @@ def build(store: Store) -> None:
                     ("Running since", when(status["started_at"]) if status["state"] != "stopped" else "–"),
                     ("Strategy", f"{store.baseline_version()} ({store.baseline_id or '–'})"),
                     ("RAM / CPU", f"{health['machine']['ram_used_pct']:.0f}% / {health['machine']['cpu_pct']:.0f}%"),
-                    ("PC clock vs Binance", "–" if offset is None else f"{-offset / 1000:+.1f} s (corrected)")]
+                    ("PC clock vs exchange", "–" if offset is None else f"{-offset / 1000:+.1f} s (corrected)")]
             for k, v in rows:
                 with ui.row().classes("w-full justify-between"):
                     ui.label(k).classes("text-2 text-sm")
                     ui.label(v).classes("text-sm num")
             if offset is not None and abs(offset) > 1000:
                 ui.label("This computer's clock is off by more than a second. The agent corrects for it with "
-                         "Binance's server time; turning on Windows time sync keeps the logs exact.").classes("muted text-xs")
+                         "exchange's server time; turning on Windows time sync keeps the logs exact.").classes("muted text-xs")
             running = status["state"] != "stopped"
             start_btn.set_enabled(not running)
             stop_btn.set_enabled(running)
@@ -228,7 +229,7 @@ def build(store: Store) -> None:
             b = health["binance"]
             ui.separator()
             with ui.row().classes("w-full justify-between"):
-                ui.label("Binance 1m candles").classes("text-sm")
+                ui.label(f"{store.settings.venue} 1m candles").classes("text-sm")
                 ui.label(ago(b["age_s"])).classes("text-sm muted num")
 
     refresh()

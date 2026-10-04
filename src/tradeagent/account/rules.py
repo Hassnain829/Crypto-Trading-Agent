@@ -11,9 +11,10 @@ from tradeagent.config import PaperAccountConfig
 
 @dataclass(frozen=True)
 class MarketLimits:
-    step_size: float  # quantity increment
-    min_qty: float
-    min_notional: float  # minimum order value in USDT
+    step_size: float  # order increment, in the market's order unit (contracts, or coins when contract_size is 1)
+    min_qty: float  # minimum order, same unit
+    min_notional: float  # minimum order value in the quote currency
+    contract_size: float = 1.0  # coins per contract
 
 
 @dataclass
@@ -61,10 +62,18 @@ def size_position(
     if qty > by_margin:
         qty = by_margin
         notes.append(f"size reduced to the free margin ({free_margin:.2f} USDT at {rules.leverage_cap:g}x)")
-    qty = round_down(qty, limits.step_size)
+    wanted = qty
+    contracts = round_down(qty / limits.contract_size, limits.step_size)
+    qty = contracts * limits.contract_size  # coins
     notional = qty * entry
-    if qty <= 0 or qty < limits.min_qty or notional < limits.min_notional:
+    if contracts <= 0 or contracts < limits.min_qty or notional < limits.min_notional:
+        if limits.contract_size != 1 and wanted > 0:
+            one = max(limits.min_qty, limits.step_size) * limits.contract_size * distance
+            return (f"one contract ({limits.contract_size:g} coins) would risk {one:.2f} "
+                    f"({one / balance:.1%} of the balance), more than allowed")
         return f"below the minimum order size ({limits.min_notional:g} USDT)"
+    if limits.contract_size != 1:
+        notes.append(f"{contracts:g} contract(s) of {limits.contract_size:g}")
     return Sizing(qty, notional, notional / balance, qty * distance, notes)
 
 

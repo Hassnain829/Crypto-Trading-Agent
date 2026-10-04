@@ -16,6 +16,7 @@ from pydantic import ValidationError
 
 from tradeagent.config import Settings
 from tradeagent.journal.db import now_ms
+from tradeagent.venues import VENUES
 
 PREFIX = "cfg:"
 
@@ -50,8 +51,6 @@ FIELDS: tuple[EditableField, ...] = (
     EditableField("paper_account.max_positions_per_coin", "Max positions per coin", "optint", "Empty = no limit."),
     EditableField("paper_account.daily_loss_stop", "Daily loss stop", "optpercent",
           "Stops new entries for the rest of the UTC day after this loss. Empty = off."),
-    EditableField("live_account.exchange", "Live exchange", "select", "Where live orders will go (Phase 6).",
-          choices=("binance", "bitget", "mexc")),
     EditableField("live_account.starting_balance", "Live balance", "money", "Balance the live preview starts with."),
     EditableField("live_account.risk_per_trade", "Risk per trade", "percent"),
     EditableField("live_account.leverage_cap", "Leverage cap", "float"),
@@ -73,6 +72,11 @@ FIELDS: tuple[EditableField, ...] = (
           "Time axis of the AGENT charts and the times on this dashboard. 'Same as this computer' follows the "
           "PC or VPS. Display only: candles, signals and stored times (UTC) do not change.",
           choices=tuple(v for v, _ in TIMEZONES), labels=TIMEZONES),
+    EditableField("exchange.venue", "Trading exchange", "select",
+          "Its prices fill the demo trades, and from Phase 6 it takes the live orders. Signals stay on the TradingView "
+          "charts. After a change the agent downloads this exchange's market data again (a few minutes); start a new "
+          "forward test afterwards (paper-reset --from-now).",
+          live=False, choices=tuple(VENUES), labels=tuple((v.id, v.label) for v in VENUES.values())),
     EditableField("research.enabled", "Daily research run", "bool", "Claude studies the journal once a day (Phase 5)."),
     EditableField("research.daily_time_utc", "Research time (UTC)", "time"),
 )
@@ -84,6 +88,7 @@ GROUPS = {
     "Go-live gate": [f for f in FIELDS if f.path.startswith("goal.")],
     "TradingView": [f for f in FIELDS if f.path.startswith("tradingview.")],
     "Research": [f for f in FIELDS if f.path.startswith("research.")],
+    "Trading exchange (applies when the agent restarts)": [f for f in FIELDS if f.path.startswith("exchange.")],
 }
 
 

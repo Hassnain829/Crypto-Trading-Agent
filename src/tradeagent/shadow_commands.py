@@ -34,15 +34,15 @@ def _utc(ms: int | None) -> str:
 
 
 def market_sync() -> int:
-    from tradeagent.market.binance import public_client
     from tradeagent.market.sync import sync_all
+    from tradeagent.venues import market_data
 
     settings: Settings = load_settings()
     setup_logging(settings, console=False)
     conn = connect(settings.resolve(settings.journal.path))
     try:
         migrate(conn)
-        counts = sync_all(settings, conn, public_client(), int(time.time() * 1000), with_info=True)
+        counts = sync_all(settings, conn, market_data(settings), int(time.time() * 1000), with_info=True)
     finally:
         conn.close()
     for name, n in counts.items():

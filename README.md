@@ -28,7 +28,11 @@ Copy-Item .env.example .env
 # 5. Optional: start the dashboard (and so the agent) at every logon
 powershell -ExecutionPolicy Bypass -File scripts\install_startup_tasks.ps1
 
-# 6. Results in the terminal
+# 6. Trading venues: who may use them, fees, and the strategy replayed on another venue's prices
+.venv\Scripts\python -m tradeagent venues
+.venv\Scripts\python -m tradeagent venue-replay coinbase-us --balance 1000
+
+# 7. Results in the terminal
 .venv\Scripts\python -m tradeagent shadow-report   # every variant in the exploration book
 .venv\Scripts\python -m tradeagent paper-report    # paper account and the go-live gate
 

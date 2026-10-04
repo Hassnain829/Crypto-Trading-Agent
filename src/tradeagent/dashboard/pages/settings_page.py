@@ -19,6 +19,7 @@ from tradeagent.dashboard.widgets import (ChartOrEmpty, Tile, card, column, line
                                           tz_label, when)
 from tradeagent.journal.db import now_ms
 from tradeagent.settings_store import GROUPS, EditableField, audit_log, current, reset_value, set_value
+from tradeagent.venues import get_venue
 
 SECTIONS = [
     ("account", "Demo account", "account_balance_wallet"),
@@ -32,7 +33,7 @@ SECTIONS = [
     ("research", "Research", "psychology"),
     ("audit", "Audit log", "history"),
 ]
-GROUP_FOR = {"account": 0, "live": 1, "costs": 2, "gate": 3, "tradingview": 4, "research": 5}
+GROUP_FOR = {"account": 0, "live": 1, "costs": 2, "gate": 3, "tradingview": 4, "research": 5, "exchanges": 6}
 
 
 def build(store: Store, section: str = "account") -> None:
@@ -57,7 +58,10 @@ def build(store: Store, section: str = "account") -> None:
                 title, fields = groups[GROUP_FOR["live"]]
                 inputs = form_group(store, title, fields)
                 live_preview_panel(store, inputs)
-            with ui.tab_panel(tab["exchanges"]).classes("p-0"):
+            with ui.tab_panel(tab["exchanges"]).classes("p-0 gap-4"):
+                title, fields = groups[GROUP_FOR["exchanges"]]
+                form_group(store, title, fields)
+                venue_panel(store)
                 exchanges_panel(store)
             with ui.tab_panel(tab["rules"]).classes("p-0"):
                 rules_panel(store)
@@ -239,8 +243,8 @@ def exchanges_panel(store: Store) -> None:
     with ui.column().classes("w-full gap-1 mb-2"):
         ui.label("Keys stay on this computer: they are written to the project's .env file (never committed to git) and "
                  "shown masked. Use keys with read + futures trading only. Never enable withdrawals.").classes("text-2 text-sm")
-        ui.label(f"Live trading exchange: {store.settings.live_account.exchange.title()} "
-                 "(change it under Live limits). Market data and signals keep coming from Binance and TradingView.").classes(
+        ui.label(f"Trading exchange: {get_venue(store.settings.venue).label}. Demo trades are filled with its prices and "
+                 "live orders (Phase 6) will go there. Signals keep coming from the TradingView charts.").classes(
             "muted text-xs")
     box = ui.row().classes("w-full gap-4 items-stretch")
 
@@ -287,8 +291,12 @@ def exchanges_panel(store: Store) -> None:
                 ui.link(f"Open {spec.name} API management", spec.url, new_tab=True).classes("text-sm")
             fields = {}
             for f in spec.fields:
-                fields[f.name] = ui.input(f.label, password=True, password_toggle_button=True,
-                                          placeholder=f.hint).classes("w-full").props("autocomplete=off")
+                if f.multiline:  # a PEM private key keeps its line breaks only in a text area
+                    fields[f.name] = ui.textarea(f.label, placeholder=f.hint).classes("w-full").props(
+                        "autocomplete=off autogrow input-style='font-family:monospace;font-size:11px'")
+                else:
+                    fields[f.name] = ui.input(f.label, password=True, password_toggle_button=True,
+                                              placeholder=f.hint).classes("w-full").props("autocomplete=off")
             warn = ui.label().classes("text-xs loss")
 
             def save(force: bool = False) -> None:
@@ -390,14 +398,30 @@ def rules_panel(store: Store) -> None:
 
 
 # ---- read-only panels --------------------------------------------------------------------------
+def venue_panel(store: Store) -> None:
+    s = store.settings
+    venue = get_venue(s.venue)
+    with card(venue.label, "The exchange the demo trades are filled on now", classes="w-full"):
+        for k, v in (("Who can use it", venue.who), ("Fees", venue.fee_note or "see the exchange"),
+                     ("Settles in", venue.settle), ("Markets", ", ".join(f"{c} {m}" for c, m in s.markets().items())),
+                     ("Simulated costs", f"maker {s.costs.maker_fee:.3%}, taker {s.costs.taker_fee:.3%}, "
+                                         f"slippage {s.costs.slippage:.3%} (Settings > Costs)")):
+            with ui.row().classes("w-full gap-3 no-wrap items-start"):
+                ui.label(k).classes("kv-key w-[130px] shrink-0")
+                ui.label(v).classes("text-sm")
+        ui.label("Before switching, compare the edge on the new exchange: "
+                 ".venv\\Scripts\\python -m tradeagent venue-replay <exchange> --balance 1000").classes("muted text-xs")
+
+
 def markets_panel(store: Store) -> None:
     s = store.settings
-    with card("Markets", "Binance USDT-M perpetuals read on TradingView", classes="w-full"):
-        rows = [{"id": coin, "coin": coin, "ccxt": c.ccxt, "tv": c.tradingview, "layout": f"AGENT-{coin}"}
+    venue = get_venue(s.venue)
+    with card("Markets", f"Signals from the TradingView charts; trades filled on {venue.label}", classes="w-full"):
+        rows = [{"id": coin, "coin": coin, "market": s.market(coin), "tv": c.tradingview, "layout": f"AGENT-{coin}"}
                 for coin, c in s.exchange.symbols.items()]
-        ui.table(rows=rows, row_key="id", columns=[column("coin", "Coin"), column("ccxt", "Binance"),
-                                                   column("tv", "TradingView"), column("layout", "Layout")]).classes(
-            "w-full").props("flat dense")
+        ui.table(rows=rows, row_key="id", columns=[column("coin", "Coin"), column("tv", "Signal chart (TradingView)"),
+                                                   column("market", f"Market on {venue.id}"),
+                                                   column("layout", "Layout")]).classes("w-full").props("flat dense")
         with ui.row().classes("gap-8 mt-2"):
             with ui.column().classes("gap-0"):
                 ui.label("Trading timeframes").classes("kv-key")

@@ -36,7 +36,7 @@ def world(settings):
         [(BASELINE, "a", "baseline"), (CHALLENGER, "b", "challenger")],
     )
     conn.executemany(  # Binance's real limits: LINK has a 20 USDT minimum order
-        "INSERT INTO market_info VALUES (?, ?, ?, ?, ?, 0)",
+        "INSERT INTO market_info (symbol, tick_size, step_size, min_qty, min_notional, updated_at) VALUES (?, ?, ?, ?, ?, 0)",
         [("XRP", 0.0001, 0.1, 0.1, 5.0), ("LINK", 0.001, 0.01, 0.01, 20.0), ("SOL", 0.01, 0.01, 0.01, 5.0)],
     )
     conn.commit()

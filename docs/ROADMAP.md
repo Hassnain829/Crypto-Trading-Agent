@@ -9,11 +9,12 @@
 | 2 | [Market data + shadow engine](phases/phase-2-shadow-engine.md) | Unlimited shadow trades with real prices and fees | 1 | ~1 week (incl. 7-day run) |
 | 3 | [Paper account + risk engine](phases/phase-3-paper-account-and-risk.md) | Live-like account with every live rule | 2 | 3–5 days |
 | 4 | [Dashboard v1](phases/phase-4-dashboard.md) | See and control everything from a browser | 2 (can run beside 3) | ~1 week |
+| 4.5 | [Exchange adapter](phases/phase-4b-exchange-adapter.md) | Simulate and later trade on the user's exchange (US: Coinbase or Kraken); signals stay on TradingView | 2–4 | a few days |
 | 5 | [Learning loop](phases/phase-5-learning-loop.md) | Claude research, experiments, lessons | 2, 3, 4 | 2–3 weeks incl. data collection |
-| 6 | [Live trading](phases/phase-6-live-trading.md) | Small live account on Binance | Go-live gate + your approval | 2–4 weeks of monitored trading |
+| 6 | [Live trading](phases/phase-6-live-trading.md) | Small live account on the chosen venue (US: Coinbase or Kraken) | Go-live gate + your approval | 2–4 weeks of monitored trading |
 | 7 | [Scale and improve](phases/phase-7-scale-and-improve.md) | More coins, setups and features | 6 | Ongoing |
 
-**Status (2026-10-03):** Phase 0 complete. Phases 1, 2, 3 and 4 built. One `agent` run covers their remaining runtime tests: 48 hours (Phase 1) and 7 days (Phases 2 and 3).
+**Status (2026-10-04):** Phase 0 complete. Phases 1, 2, 3, 4 and 4.5 built; the live venue is being chosen. One `agent` run covers their remaining runtime tests: 48 hours (Phase 1) and 7 days (Phases 2 and 3).
 
 Times are estimates. Building is fast; collecting enough shadow trades is the real clock. The earliest realistic live start is about 6–8 weeks after Phase 0, and only if the go-live gate is met.
 

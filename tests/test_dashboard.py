@@ -25,7 +25,7 @@ def world(settings):
     migrate(conn)
     conn.execute("INSERT INTO variants (id, params_json, params_hash, role, parent, created_at) VALUES"
                  " ('v0-aaaaaa', ?, 'a', 'baseline', NULL, 0)", (json.dumps({}),))
-    conn.executemany("INSERT INTO market_info VALUES (?, ?, ?, ?, ?, 0)",
+    conn.executemany("INSERT INTO market_info (symbol, tick_size, step_size, min_qty, min_notional, updated_at) VALUES (?, ?, ?, ?, ?, 0)",
                      [("XRP", 0.0001, 0.1, 0.1, 5.0), ("LINK", 0.001, 0.01, 0.01, 20.0), ("SOL", 0.01, 0.01, 0.01, 5.0)])
     conn.commit()
     yield conn, settings

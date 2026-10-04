@@ -21,14 +21,33 @@ class _Section(BaseModel):
 
 
 class SymbolConfig(_Section):
-    ccxt: str
-    tradingview: str
+    tradingview: str  # the signal chart (TradingView symbol)
+    markets: dict[str, str] = Field(default_factory=dict)  # venue -> market (ccxt symbol or the exchange's id)
+    ccxt: str | None = None  # older settings files: the Binance USDT-M market
+
+    @model_validator(mode="after")
+    def _legacy_binance_market(self) -> SymbolConfig:
+        if self.ccxt and "binance-usdm" not in self.markets:
+            self.markets["binance-usdm"] = self.ccxt
+        return self
 
 
 class ExchangeConfig(_Section):
-    name: Literal["binance"]
-    market_type: Literal["usdm"]
+    # The venue fills the demo trades with its own prices and (Phase 6) takes the live orders; see venues.py.
+    venue: str = "binance-usdm"
+    name: str | None = None  # older settings files
+    market_type: str | None = None  # older settings files
     symbols: dict[str, SymbolConfig] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _venue_has_every_market(self) -> ExchangeConfig:
+        from tradeagent.venues import get_venue
+
+        get_venue(self.venue)
+        missing = [coin for coin, cfg in self.symbols.items() if self.venue not in cfg.markets]
+        if missing:
+            raise ValueError(f"exchange.symbols has no {self.venue} market for {missing}")
+        return self
 
 
 class TimeframesConfig(_Section):
@@ -137,7 +156,7 @@ class GoalConfig(_Section):
 class LiveAccountConfig(PaperAccountConfig):
     """Limits for live trading (Phase 6). Edited in the dashboard; the live preview replays trades through them."""
 
-    exchange: Literal["binance", "bitget", "mexc"] = "binance"
+    exchange: str | None = None  # older settings files; live orders go to the trading venue (exchange.venue)
 
 
 class ResearchConfig(_Section):
@@ -164,6 +183,8 @@ class Secrets(BaseModel):
     bitget_api_passphrase: SecretStr | None = None
     mexc_api_key: SecretStr | None = None
     mexc_api_secret: SecretStr | None = None
+    coinbase_api_key: SecretStr | None = None
+    coinbase_api_secret: SecretStr | None = None
 
     @property
     def has_binance_keys(self) -> bool:
@@ -198,6 +219,18 @@ class Settings(_Section):
         if untracked:
             raise ValueError(f"market_data.candle_timeframes must include the trading timeframes {untracked}")
         return self
+
+    @property
+    def venue(self) -> str:
+        return self.exchange.venue
+
+    def market(self, coin: str, venue: str | None = None) -> str:
+        """The coin's market on the venue (default: the configured venue)."""
+        return self.exchange.symbols[coin].markets[venue or self.exchange.venue]
+
+    def markets(self, venue: str | None = None) -> dict[str, str]:
+        """Agent coin -> market on the venue."""
+        return {coin: self.market(coin, venue) for coin in self.exchange.symbols}
 
     def layout_for(self, coin: str) -> str:
         """Layout id of the chart tab that shows `coin` on the trading timeframes."""

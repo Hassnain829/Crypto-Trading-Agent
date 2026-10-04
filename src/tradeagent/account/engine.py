@@ -104,8 +104,9 @@ class AccountEngine:
         ).fetchall()
 
     def _limits(self, symbol: str) -> MarketLimits:
-        row = self.conn.execute("SELECT step_size, min_qty, min_notional FROM market_info WHERE symbol = ?", (symbol,)).fetchone()
-        return MarketLimits(row["step_size"], row["min_qty"] or 0.0, row["min_notional"] or 0.0)
+        row = self.conn.execute("SELECT step_size, min_qty, min_notional, contract_size FROM market_info WHERE symbol = ?",
+                                (symbol,)).fetchone()
+        return MarketLimits(row["step_size"], row["min_qty"] or 0.0, row["min_notional"] or 0.0, row["contract_size"] or 1.0)
 
     def _missing_market_info(self) -> list[str]:
         have = {r[0] for r in self.conn.execute("SELECT symbol FROM market_info WHERE step_size IS NOT NULL")}
@@ -177,7 +178,7 @@ class AccountEngine:
             # New signals, plus signals that arrived since the last run (a late one is recorded, not traded).
             candidates = self.conn.execute(
                 """
-                SELECT id, variant_id, symbol, timeframe, side, entry_time, entry_ref, stop_initial
+                SELECT id, variant_id, symbol, timeframe, side, entry_time, entry_ref, stop_initial, venue
                 FROM trades WHERE book = 'exploration' AND variant_id = ? AND taken = 1
                   AND status IN ('open', 'closed') AND (entry_time >= ? OR created_at > ?)
                   AND id NOT IN (SELECT trade_id FROM account_trades WHERE account = ?)
@@ -215,11 +216,11 @@ class AccountEngine:
         now = now_ms()
         self.conn.execute(
             "INSERT INTO account_trades (account, trade_id, variant_id, symbol, timeframe, side, entry_time,"
-            " status, entry_fill, stop, qty, notional, leverage, risk_usd, balance_before, notes, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " status, entry_fill, stop, qty, notional, leverage, risk_usd, balance_before, notes, venue, created_at,"
+            " updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (ACCOUNT, cand["id"], cand["variant_id"], cand["symbol"], cand["timeframe"], cand["side"], cand["entry_time"],
              self.broker.entry_fill(cand["id"]), cand["stop_initial"], sizing.qty, sizing.notional, sizing.leverage,
-             sizing.risk_usd, state["balance"], "; ".join(sizing.notes) or None, now, now),
+             sizing.risk_usd, state["balance"], "; ".join(sizing.notes) or None, cand["venue"], now, now),
         )
         return True
 
@@ -227,9 +228,10 @@ class AccountEngine:
         now = now_ms()
         self.conn.execute(
             "INSERT INTO account_trades (account, trade_id, variant_id, symbol, timeframe, side, entry_time,"
-            " status, reject_reason, balance_before, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, 'rejected', ?, ?, ?, ?)",
+            " status, reject_reason, balance_before, venue, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, 'rejected', ?, ?, ?, ?, ?)",
             (ACCOUNT, cand["id"], cand["variant_id"], cand["symbol"], cand["timeframe"], cand["side"], cand["entry_time"],
-             reason, state["balance"], now, now),
+             reason, state["balance"], cand["venue"], now, now),
         )
 
     def _close_all(self, state: dict) -> int:

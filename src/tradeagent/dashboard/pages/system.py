@@ -94,7 +94,8 @@ def quality_panel(store: Store) -> None:
             table.update()
         hours.on_value_change(lambda _: load())
         load()
-    with card("Binance candle gaps", "Missing 1m candles in the last 48 hours (repaired automatically when Binance has them)",
+    with card("Candle gaps", f"Missing {store.settings.venue} 1m candles in the last 48 hours (repaired automatically "
+              "when the exchange has them)",
               classes="w-full"):
         gaps = store.gaps()
         if gaps:

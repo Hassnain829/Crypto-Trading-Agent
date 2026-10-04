@@ -30,6 +30,19 @@ from tradeagent.tv.watchdog import Watchdog
 log = logging.getLogger("tradeagent.reader")
 
 INPUTS_WAIT_S = 120  # after a TradingView start the indicators of a tab can take a while to load
+LATE_WAKE_S = 600  # a candle close noticed this late means the computer slept; it is skipped
+
+
+def _is_connection_problem(exc: BaseException) -> bool:
+    import ccxt
+
+    return isinstance(exc, (ccxt.NetworkError, CDPError, TimeoutError, ConnectionError))
+
+
+def _short(exc: BaseException) -> str:
+    """One line for the log: the exception type and the start of its message."""
+    text = " ".join(str(exc).split())
+    return f"{type(exc).__name__}: {text[:200]}" if text else type(exc).__name__
 
 
 class SignalReader:
@@ -47,7 +60,11 @@ class SignalReader:
         self.catalog = catalog
         self.conn = conn
         self.cdp = cdp or TradingViewCDP(tv.cdp_host, tv.cdp_port, timeout=tv.prepare_timeout_s + 15)
-        self.clock = clock or ServerClock()
+        if clock is None:  # the trading venue's server time (or this computer's clock where it has none)
+            from tradeagent.venues import market_data
+
+            clock = ServerClock(market_data(settings).fetch_time)
+        self.clock = clock
         self.watchdog = Watchdog(settings, self.cdp)
         self.signal_version = tv.signal_version
         self._timeout_ms = int(tv.prepare_timeout_s * 1000)
@@ -225,6 +242,20 @@ class SignalReader:
                 break
             except TimeoutError:
                 pass
+            late = self.clock.now_s() - boundary
+            if late > max(2 * step, LATE_WAKE_S):
+                # The computer slept (or the process was paused): that candle close is long gone. Re-measure the
+                # clock, say what was missed, and continue with the next candle close instead of a stale read.
+                message = (f"no reads from {time.strftime('%H:%M', time.gmtime(boundary))} to "
+                           f"{time.strftime('%H:%M', time.gmtime(self.clock.now_s()))} UTC: the computer was asleep or busy "
+                           f"({late / 60:.0f} min, about {int(late // step)} candle closes missed)")
+                log.warning(message)
+                log_event(self.conn, "WARNING", "reader", message)
+                try:
+                    await asyncio.to_thread(self.clock.measure)
+                except Exception as exc:
+                    log.warning("clock measurement failed: %s", _short(exc))
+                continue
             timeframes = closing_at(boundary, self.settings.all_timeframes)
             try:
                 actions = await self.watchdog.ensure()
@@ -235,8 +266,11 @@ class SignalReader:
                 if after_cycle:
                     await after_cycle(boundary, snaps)
             except Exception as exc:  # keep running; the next cycle retries
-                log.exception("cycle failed")
-                log_event(self.conn, "ERROR", "reader", f"cycle failed: {exc}")
+                if _is_connection_problem(exc):  # no internet, exchange or TradingView unreachable: one line is enough
+                    log.warning("cycle failed, retrying next cycle: %s", _short(exc))
+                else:
+                    log.exception("cycle failed")
+                log_event(self.conn, "ERROR", "reader", f"cycle failed: {_short(exc)}")
             if time.monotonic() - last_hourly >= 3600:
                 last_hourly = time.monotonic()
                 await self._run_hourly(hourly)
@@ -257,11 +291,11 @@ class SignalReader:
         try:
             await asyncio.to_thread(self.clock.measure)
         except Exception as exc:
-            log.warning("clock measurement failed: %s", exc)
+            log.warning("clock measurement failed: %s", _short(exc))
         try:
             await self.check_signal_version()
         except Exception as exc:
-            log.warning("signal version check failed: %s", exc)
+            log.warning("signal version check failed: %s", _short(exc))
         usage = await asyncio.to_thread(resources.usage)
         level = "WARNING" if usage["ram_used_pct"] > 80 else "INFO"
         log_event(self.conn, level, "resources", f"RAM {usage['ram_used_pct']}% used", usage)

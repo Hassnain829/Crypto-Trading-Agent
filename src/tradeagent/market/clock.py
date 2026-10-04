@@ -1,4 +1,5 @@
-"""Binance server time. The PC clock can drift, so candle timing uses the server clock."""
+"""Server time of the trading venue. The PC clock can drift, so candle timing uses the server clock.
+Venues without a time endpoint fall back to the computer's clock, which Windows time sync must keep exact."""
 
 from __future__ import annotations
 

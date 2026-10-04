@@ -181,7 +181,7 @@ def detail(store: Store, d: dict[str, Any], close) -> None:
                 kv(k, v, "profit" if k == "Demo PnL" and (paper["pnl_usd"] or 0) > 0 else
                    "loss" if k == "Demo PnL" and (paper["pnl_usd"] or 0) < 0 else "")
 
-    with card(f"Price ({d['candle_tf']} Binance candles)", "Entry, stop and target lines; the shaded band is the trade",
+    with card(f"Price ({d['candle_tf']} candles, {store.settings.venue})", "Entry, stop and target lines; the shaded band is the trade",
               classes="w-full"):
         if d["candles"]:
             cats = [c[0] for c in d["candles"]]

@@ -128,41 +128,45 @@ def check_journal(settings: Settings) -> CheckResult:
 
 
 def check_binance(settings: Settings) -> CheckResult:
+    """The trading venue's public market data (the name is kept for the doctor's check list)."""
     import ccxt
 
-    from tradeagent.market.binance import public_client
+    from tradeagent.venues import market_data
 
-    client = public_client()
+    client = market_data(settings)
+    title = f"Market data ({client.venue.label})"
     prices, problems = [], []
     try:
-        markets = client.load_markets()  # also warms up the connection before the clock measurement
-        # Compare against the middle of the request so network latency is not counted as drift.
-        sent = now_ms()
-        server_ms = client.fetch_time()
-        drift_ms = abs(server_ms - (sent + now_ms()) // 2)
-        for name, symbol in settings.exchange.symbols.items():
-            market = markets.get(symbol.ccxt)
-            if market is None:
-                problems.append(f"{symbol.ccxt} not listed")
+        client.load_markets()  # also warms up the connection before the clock measurement
+        drift, drift_ms = "computer clock (the venue has no time endpoint)", 0
+        if client.venue.server_time:
+            # Compare against the middle of the request so network latency is not counted as drift.
+            sent = now_ms()
+            server_ms = client.fetch_time()
+            drift_ms = abs(server_ms - (sent + now_ms()) // 2)
+            drift = f"clock drift {drift_ms} ms"
+        for name, ref in settings.markets().items():
+            try:
+                market = client.market(ref)
+            except ValueError:
+                problems.append(f"{ref} not listed")
                 continue
             if not market.get("active", True):
-                problems.append(f"{symbol.ccxt} not active")
-            prices.append(f"{name} {client.fetch_ticker(symbol.ccxt)['last']}")
+                problems.append(f"{ref} not active")
+            prices.append(f"{name} {client.exchange.fetch_ticker(market['symbol'])['last']}")
     except ccxt.BaseError as exc:
         return CheckResult(
-            "Binance API",
+            title,
             Status.FAIL,
             f"{type(exc).__name__}: {str(exc)[:160]}",
-            "Check the internet connection. A 451 or 403 error means Binance blocks this location.",
+            "Check the internet connection. A 451 or 403 error means the exchange blocks this location.",
         )
-    detail = f"{', '.join(prices)}; clock drift {drift_ms} ms"
+    detail = f"{', '.join(prices)}; {drift}"
     if problems:
-        return CheckResult(
-            "Binance API", Status.FAIL, f"{detail}; {'; '.join(problems)}", "Check the symbols in config/settings.yaml."
-        )
+        return CheckResult(title, Status.FAIL, f"{detail}; {'; '.join(problems)}", "Check the markets in config/settings.yaml.")
     if drift_ms > 1000:
-        return CheckResult("Binance API", Status.WARN, detail, "Sync the Windows clock (Settings > Time > Sync now).")
-    return CheckResult("Binance API", Status.OK, detail)
+        return CheckResult(title, Status.WARN, detail, "Sync the Windows clock (Settings > Time > Sync now).")
+    return CheckResult(title, Status.OK, detail)
 
 
 def check_tradingview(settings: Settings) -> CheckResult:
@@ -246,7 +250,7 @@ def run_checks(settings: Settings, *, offline: bool = False) -> list[CheckResult
         check_journal(settings),
     ]
     if offline:
-        results.append(CheckResult("Binance API", Status.WARN, "skipped (--offline)"))
+        results.append(CheckResult("Market data", Status.WARN, "skipped (--offline)"))
     else:
         results.append(check_binance(settings))
     results += [check_tradingview(settings), check_claude_cli(), check_node()]

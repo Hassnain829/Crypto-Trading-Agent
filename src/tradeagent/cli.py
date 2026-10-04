@@ -40,7 +40,11 @@ def main(argv: list[str] | None = None) -> int:
     dash.add_argument("--no-browser", action="store_true", help="do not open a browser window")
     dash.add_argument("--no-agent", action="store_true",
                       help="do not start the agent or restart it after a crash (the Overview buttons still work)")
-    commands.add_parser("market-sync", help="sync Binance candles, funding and market info now")
+    commands.add_parser("market-sync", help="sync the trading venue's candles, funding and market info now")
+    commands.add_parser("venues", help="list the trading venues, who may use them and their fees")
+    vr = commands.add_parser("venue-replay", help="replay the stored signals with another venue's prices (on a copy)")
+    vr.add_argument("venue", help="e.g. coinbase-us, kraken-futures, bitget")
+    vr.add_argument("--balance", type=float, action="append", help="demo starting balance to test (repeatable)")
     bf = commands.add_parser("backfill-snapshots", help="store snapshots for the history loaded in TradingView")
     bf.add_argument("--bars", type=int, help="load this much history on every chart first (Essential: up to 10000)")
     commands.add_parser("shadow-run", help="process new snapshots and move open shadow trades forward once")
@@ -74,6 +78,18 @@ def main(argv: list[str] | None = None) -> int:
         from tradeagent.doctor import main as doctor_main
 
         return doctor_main(offline=args.offline)
+    if args.command == "venues":
+        from tradeagent.venues import NOT_YET, VENUES
+
+        for v in VENUES.values():
+            print(f"{v.id:<15} {v.label}\n{'':<15} who: {v.who}\n{'':<15} fees: {v.fee_note}")
+        for venue_id, note in NOT_YET.items():
+            print(f"{venue_id:<15} not usable yet: {note}")
+        return 0
+    if args.command == "venue-replay":
+        from tradeagent.venue_replay import venue_replay
+
+        return venue_replay(args.venue, args.balance or [150.0])
 
     from tradeagent.tv import commands as tv
 

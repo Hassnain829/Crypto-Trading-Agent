@@ -15,7 +15,7 @@ from tradeagent.account.engine import AccountEngine
 from tradeagent.config import Settings
 from tradeagent.journal import log_event
 from tradeagent.journal.db import now_ms, write_status
-from tradeagent.market.candles import sync_market_info
+from tradeagent.market.candles import ensure_venue, sync_market_info
 from tradeagent.market.sync import sync_all
 from tradeagent.settings_store import apply_overrides
 from tradeagent.setups.config import load_variants, register_variants
@@ -30,6 +30,7 @@ from tradeagent.tv.snapshots import Snapshot
 log = logging.getLogger("tradeagent.agent")
 
 STOP_POLL_S = 3  # how often the agent looks for a stop request from the dashboard
+BACKFILL_PAGES = 20  # older candles downloaded per cycle and timeframe (newest first) after a venue change
 
 
 class Agent:
@@ -48,10 +49,11 @@ class Agent:
 
     @property
     def client(self) -> Any:
-        if self._client is None:
-            from tradeagent.market.binance import public_client
+        # A new client when the venue changed (the dashboard setting is re-applied every cycle).
+        if self._client is None or self._client.venue.id != self.settings.venue:
+            from tradeagent.venues import market_data
 
-            self._client = public_client()
+            self._client = market_data(self.settings)
         return self._client
 
     def _apply_dashboard_settings(self) -> None:
@@ -63,7 +65,8 @@ class Agent:
         """Sync Binance candles, turn new snapshots into trades, and move open trades forward. Blocking."""
         self._apply_dashboard_settings()
         counts: Counter[str] = Counter()
-        synced = sync_all(self.settings, self.conn, self.client, self.reader.clock.now_ms())
+        synced = sync_all(self.settings, self.conn, self.client, self.reader.clock.now_ms(),
+                          backfill_pages=BACKFILL_PAGES)
         counts["candles_added"] = sum(n for name, n in synced.items() if not name.endswith("funding"))
         counts.update(self.engine.process())
         counts.update(self.tracker.update())
@@ -102,7 +105,8 @@ class Agent:
         })
 
     async def _hourly(self) -> None:
-        sync_market_info(self.conn, self.client, {s: c.ccxt for s, c in self.settings.exchange.symbols.items()})
+        ensure_venue(self.conn, self.settings.venue)
+        sync_market_info(self.conn, self.client, self.settings.markets())
 
     async def _watch_stop_requests(self, stop: asyncio.Event, started_at: int) -> None:
         """The dashboard's Stop button writes a stop request to the journal; stop after the current step."""

@@ -22,6 +22,7 @@ class CredentialField:
     env: str  # variable in .env
     pattern: str  # what a pasted value should look like (a soft check)
     hint: str
+    multiline: bool = False  # a PEM key: saved to .env with its line breaks written as \n
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,8 @@ class ExchangeSpec:
     options: dict[str, Any] = field(default_factory=dict)
     steps: tuple[str, ...] = ()
     url: str = ""
+    balance_params: dict[str, Any] = field(default_factory=dict)  # fetch_balance parameters for the test
+    currency: str = "USDT"
 
 
 _KEY = r"^[A-Za-z0-9_\-]{16,128}$"
@@ -82,6 +85,25 @@ EXCHANGES: dict[str, ExchangeSpec] = {
         ),
         url="https://www.mexc.com/user/openapi",
     ),
+    "coinbase": ExchangeSpec(
+        key="coinbase", name="Coinbase", ccxt_id="coinbase", market="US perpetual-style futures",
+        fields=(
+            CredentialField("apiKey", "API key name", "COINBASE_API_KEY", r"^organizations/[\w-]+/apiKeys/[\w-]+$",
+                            "organizations/<id>/apiKeys/<id>"),
+            CredentialField("secret", "Private key", "COINBASE_API_SECRET", r"^-----BEGIN EC PRIVATE KEY-----",
+                            "the whole key from -----BEGIN EC PRIVATE KEY----- to -----END EC PRIVATE KEY-----",
+                            multiline=True),
+        ),
+        steps=(
+            "Open the Coinbase Developer Platform > API keys > Create API key (Secret API key).",
+            "Signature algorithm ECDSA. Permissions: View and Trade. Never Transfer.",
+            "Optional but recommended: allow only your VPS IP address.",
+            "Copy the API key name and the whole private key (shown only once).",
+            "Futures must be enabled on your Coinbase account (Coinbase Financial Markets, US residents).",
+        ),
+        url="https://portal.cdp.coinbase.com/access/api",
+        balance_params={"type": "future"}, currency="USD",
+    ),
 }
 
 
@@ -94,7 +116,11 @@ def mask(value: str | None) -> str:
 def read(env_file: Path, exchange: str) -> dict[str, str | None]:
     """Current values for one exchange (environment variables win over .env, as in config.py)."""
     file_values = dotenv_values(env_file) if env_file.is_file() else {}
-    return {f.name: os.environ.get(f.env) or file_values.get(f.env) or None for f in EXCHANGES[exchange].fields}
+    out = {}
+    for f in EXCHANGES[exchange].fields:
+        value = os.environ.get(f.env) or file_values.get(f.env) or None
+        out[f.name] = value.replace("\\n", "\n") if value and f.multiline else value
+    return out
 
 
 def status(env_file: Path) -> dict[str, dict[str, Any]]:
@@ -122,7 +148,10 @@ def save(env_file: Path, exchange: str, values: dict[str, str]) -> None:
     if not env_file.exists():
         env_file.touch()
     for f in EXCHANGES[exchange].fields:
-        set_key(str(env_file), f.env, values[f.name].strip(), quote_mode="never")
+        value = values[f.name].strip()
+        if f.multiline:  # one line in .env; read() restores the line breaks
+            value = value.replace("\r\n", "\n").replace("\n", "\\n")
+        set_key(str(env_file), f.env, value, quote_mode="never")
 
 
 def remove(env_file: Path, exchange: str) -> None:
@@ -141,7 +170,7 @@ def test_connection(exchange: str, values: dict[str, str | None]) -> tuple[bool,
     client = getattr(ccxt, spec.ccxt_id)({**{k: v for k, v in values.items()}, "enableRateLimit": True,
                                           "timeout": 15000, "options": dict(spec.options)})
     try:
-        balance = client.fetch_balance()
+        balance = client.fetch_balance(dict(spec.balance_params))
     except ccxt.AuthenticationError as exc:
         return False, f"Rejected by {spec.name}: {_short(exc)}"
     except ccxt.PermissionDenied as exc:
@@ -150,8 +179,8 @@ def test_connection(exchange: str, values: dict[str, str | None]) -> tuple[bool,
         return False, f"Could not reach {spec.name}: {_short(exc)}"
     except ccxt.BaseError as exc:
         return False, f"{spec.name} error: {_short(exc)}"
-    usdt = (balance.get("total") or {}).get("USDT")
-    return True, f"Connected to {spec.name} {spec.market}. USDT balance: {usdt if usdt is not None else 0:.2f}"
+    amount = (balance.get("total") or {}).get(spec.currency)
+    return True, f"Connected to {spec.name} {spec.market}. {spec.currency} balance: {amount if amount is not None else 0:.2f}"
 
 
 def _short(exc: Exception) -> str:

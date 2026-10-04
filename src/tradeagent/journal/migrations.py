@@ -244,4 +244,15 @@ INSERT INTO baseline_history VALUES
      0.116, 260, 19.5, 'Strategy review 2026-10-03, ~100 days of history; positive in all four sub-periods');
 """,
     ),
+    (
+        9,
+        "trading venues",
+        """
+-- Market data (candles, funding, market_info) belongs to one venue at a time: the cache is re-downloaded
+-- when the venue changes (engine_state key 'market:venue'). Trades record the venue whose prices filled them.
+ALTER TABLE market_info ADD COLUMN contract_size REAL NOT NULL DEFAULT 1;  -- coins per contract
+ALTER TABLE trades ADD COLUMN venue TEXT NOT NULL DEFAULT 'binance-usdm';
+ALTER TABLE account_trades ADD COLUMN venue TEXT NOT NULL DEFAULT 'binance-usdm';
+""",
+    ),
 ]

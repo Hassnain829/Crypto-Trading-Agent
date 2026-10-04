@@ -3,12 +3,23 @@
 # All times are UTC.
 
 exchange:
-  name: binance
-  market_type: usdm              # Binance USDT-M perpetual futures
-  symbols:                       # agent name -> exchange (ccxt) and TradingView symbols
-    XRP:  {ccxt: "XRP/USDT:USDT",  tradingview: "BINANCE:XRPUSDT.P"}
-    LINK: {ccxt: "LINK/USDT:USDT", tradingview: "BINANCE:LINKUSDT.P"}
-    SOL:  {ccxt: "SOL/USDT:USDT",  tradingview: "BINANCE:SOLUSDT.P"}
+  # Trading venue: its prices fill the demo trades, and from Phase 6 it takes the live orders.
+  # binance-usdm | coinbase-us | kraken-futures | coinbase-intl | bitget | mexc  (see src/tradeagent/venues.py)
+  # Signals always come from the TradingView charts below. Changing the venue re-downloads market data.
+  venue: binance-usdm
+  symbols:                       # agent name -> TradingView signal chart and the market on each venue
+    XRP:
+      tradingview: "BINANCE:XRPUSDT.P"
+      markets: {binance-usdm: "XRP/USDT:USDT", coinbase-us: "XPP-20DEC30-CDE", kraken-futures: "PF_XRPUSD",
+                coinbase-intl: "XRP-PERP", bitget: "XRP/USDT:USDT", mexc: "XRP/USDT:USDT"}
+    LINK:
+      tradingview: "BINANCE:LINKUSDT.P"
+      markets: {binance-usdm: "LINK/USDT:USDT", coinbase-us: "LNP-20DEC30-CDE", kraken-futures: "PF_LINKUSD",
+                coinbase-intl: "LINK-PERP", bitget: "LINK/USDT:USDT", mexc: "LINK/USDT:USDT"}
+    SOL:
+      tradingview: "BINANCE:SOLUSDT.P"
+      markets: {binance-usdm: "SOL/USDT:USDT", coinbase-us: "SLP-20DEC30-CDE", kraken-futures: "PF_SOLUSD",
+                coinbase-intl: "SOL-PERP", bitget: "SOL/USDT:USDT", mexc: "SOL/USDT:USDT"}
 
 timeframes:
   trade: ["5m", "15m"]           # signals and entries
@@ -55,7 +66,6 @@ paper_account:                   # demo account: takes every baseline signal (th
   leverage_cap: 10               # each position is sized down to the free margin at 10x
 
 live_account:                    # limits for live trading (Phase 6); edit them in the dashboard before going live
-  exchange: binance              # binance | bitget | mexc (API keys: dashboard > Settings > Exchanges)
   starting_balance: 150
   risk_per_trade: 0.02
   max_positions: 2

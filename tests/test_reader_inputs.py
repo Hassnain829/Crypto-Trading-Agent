@@ -96,3 +96,56 @@ def test_indicators_that_never_load_stop_the_start_instead_of_changing_the_versi
 
 def test_read_inputs_is_what_the_fake_answers():
     assert "studyNames" in js.read_inputs(["Q-Trend"])
+
+
+def test_a_candle_close_noticed_long_after_sleep_is_skipped_not_read(settings, caplog):
+    import logging
+
+    catalog = load_catalog(settings.resolve(settings.tradingview.catalog))
+    stop = asyncio.Event()
+
+    class JumpingClock:
+        """The first look at the time is before a candle close; every later look is an hour later."""
+        offset_ms = 0
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def now_s(self) -> float:
+            self.calls += 1
+            return 1_791_000_000 if self.calls == 1 else 1_791_000_000 + 3600
+
+        def measure(self) -> int:  # called after the wake-up is noticed: end the test there
+            stop.set()
+            return 0
+
+    clock = JumpingClock()
+    reader, conn = _reader(settings, InputsCDP(settings, lambda layout_id, n: []), catalog)
+    reader.clock = clock
+    reads = []
+
+    async def no_start():
+        return []
+
+    async def no_hourly(_hourly):
+        return None
+
+    async def record_read(timeframes, boundary_s=None):
+        reads.append(boundary_s)
+        return []
+    reader.start, reader._run_hourly, reader.read = no_start, no_hourly, record_read
+    with caplog.at_level(logging.WARNING, logger="tradeagent.reader"):
+        asyncio.run(asyncio.wait_for(reader.run(stop=stop), timeout=5))
+    assert reads == []
+    assert any("the computer was asleep or busy" in r.getMessage() for r in caplog.records)
+    assert conn.execute("SELECT count(*) FROM events WHERE message LIKE '%asleep%'").fetchone()[0] == 1
+
+
+def test_connection_problems_are_one_line():
+    import ccxt
+
+    from tradeagent.tv.reader import _is_connection_problem, _short
+
+    exc = ccxt.RequestTimeout("binanceusdm GET https://fapi.binance.com/fapi/v1/klines\n  Read timed out")
+    assert _is_connection_problem(exc) and not _is_connection_problem(ValueError("bug"))
+    assert _short(exc) == "RequestTimeout: binanceusdm GET https://fapi.binance.com/fapi/v1/klines Read timed out"

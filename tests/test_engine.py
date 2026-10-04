@@ -253,3 +253,15 @@ def test_the_real_setups_file_loads(repo_root):
 
     variants = load_variants(repo_root / "config" / "setups.yaml", load_catalog(repo_root / "config" / "indicators.yaml"))
     assert variants[0].role == "baseline" and len({v.name for v in variants}) == len(variants)
+
+
+def test_engine_waits_for_a_quiet_entry_minute_to_get_its_candle(world):
+    conn, variants, settings = world
+    conn.executemany("INSERT INTO candles VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                     [("XRP", "1m", T0 + i * M1, 100.1, 100.3, 99.9, 100.1, 1.0) for i in (76, 77)])
+    _snap(conn, 14, _values(buy=1, hist=2.0), close=100.4)  # entry minute T0+75m: no trades, no candle yet
+    counts = SetupEngine(settings, variants, conn).process()
+    assert counts["no_entry_candle"] == 0 and counts["trades_taken"] == 0  # waited instead of skipping the signal
+    conn.execute("INSERT INTO candles VALUES ('XRP', '1m', ?, 100.1, 100.1, 100.1, 100.1, 0)", (T0 + 75 * M1,))
+    counts = SetupEngine(settings, variants, conn).process()  # the flat candle arrived once the minute settled
+    assert counts["trades_taken"] == 2
