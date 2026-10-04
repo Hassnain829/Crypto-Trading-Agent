@@ -135,6 +135,8 @@ class PaperAccountConfig(_Section):
     max_positions_per_coin: int | None = Field(default=None, ge=1, le=50)
     daily_loss_stop: float | None = Field(default=None, gt=0, le=0.5)
     leverage_cap: float = Field(ge=1, le=50)
+    # Coins the account trades; None = every coin. The shadow book keeps testing every coin either way.
+    symbols: list[str] | None = None
 
     @model_validator(mode="after")
     def _per_coin_within_total(self) -> PaperAccountConfig:
@@ -215,6 +217,10 @@ class Settings(_Section):
         missing = [f"AGENT-{coin}" for coin in self.exchange.symbols if f"AGENT-{coin}" not in self.tradingview.layouts]
         if missing:
             raise ValueError(f"tradingview.layouts is missing {missing}")
+        for section in ("paper_account", "live_account"):
+            unknown = [c for c in getattr(self, section).symbols or [] if c not in self.exchange.symbols]
+            if unknown:
+                raise ValueError(f"{section}.symbols has coins that are not in exchange.symbols: {unknown}")
         untracked = [tf for tf in self.timeframes.trade if tf not in self.market_data.candle_timeframes]
         if untracked:
             raise ValueError(f"market_data.candle_timeframes must include the trading timeframes {untracked}")

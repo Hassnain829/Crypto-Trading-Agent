@@ -25,20 +25,26 @@ def _copy(src: sqlite3.Connection, dst: sqlite3.Connection, table: str, where: s
 
 
 def live_preview(conn: sqlite3.Connection, settings: Settings, rules: PaperAccountConfig | None = None,
-                 since: int | None = None) -> dict[str, Any]:
+                 since: int | None = None, variant_id: str | None = None,
+                 symbols: list[str] | None = None) -> dict[str, Any]:
+    """`variant_id` replays another variant as if it were the baseline; `symbols` keeps only those coins."""
     from tradeagent.account.engine import ACCOUNT, AccountEngine
 
     rules = rules or settings.live_account
-    baseline = conn.execute("SELECT id FROM variants WHERE role = 'baseline'").fetchone()
+    baseline = ((variant_id,) if variant_id else
+                conn.execute("SELECT id FROM variants WHERE role = 'baseline'").fetchone())
     mem = sqlite3.connect(":memory:")
     mem.row_factory = sqlite3.Row
     migrate(mem)
     signals = 0
     if baseline:
         _copy(conn, mem, "variants", "WHERE id = ?", (baseline[0],))
+        mem.execute("UPDATE variants SET role = 'baseline'")
         _copy(conn, mem, "market_info")
+        coins = f" AND symbol IN ({', '.join('?' * len(symbols))})" if symbols else ""
         signals = _copy(conn, mem, "trades", "WHERE book = 'exploration' AND variant_id = ? AND taken = 1"
-                        " AND status IN ('open', 'closed') AND entry_time >= ?", (baseline[0], since or 0))
+                        " AND status IN ('open', 'closed') AND entry_time >= ?" + coins,
+                        (baseline[0], since or 0, *(symbols or [])))
         _copy(conn, mem, "candles", "WHERE timeframe = '1m' AND open_time = (SELECT max(c.open_time) FROM candles c"
               " WHERE c.symbol = candles.symbol AND c.timeframe = '1m')")
         mem.commit()

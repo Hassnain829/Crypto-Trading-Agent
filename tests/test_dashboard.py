@@ -144,7 +144,7 @@ def test_the_dashboard_data_layer_reads_a_journal(world):
     detail = store.trade_detail(store.shadow_trades(None, None, None, None, None, None)[0]["trade_id"])
     assert detail["trade"]["symbol"] in ("XRP", "SOL") and detail["legs"]
     assert store.feed() and store.today()["paper_closed"] >= 0
-    assert store.learning()["history"][-1]["version"] == "v2"
+    assert [h["version"] for h in store.learning()["history"]][-3:] == ["v2", "v3", "v3.1"]
     gate = store.gate()
     assert len(gate["gate"]) == 9 and all({"name", "value", "ok", "progress"} <= set(c) for c in gate["gate"])
     store.set_kill_switch("pause")

@@ -176,15 +176,17 @@ class AccountEngine:
                 state["updated_at"] = now_ms()
             state["baseline"] = baseline["id"]
             # New signals, plus signals that arrived since the last run (a late one is recorded, not traded).
+            coins = self.rules.symbols
+            only = f" AND symbol IN ({', '.join('?' * len(coins))})" if coins else ""
             candidates = self.conn.execute(
-                """
+                f"""
                 SELECT id, variant_id, symbol, timeframe, side, entry_time, entry_ref, stop_initial, venue
                 FROM trades WHERE book = 'exploration' AND variant_id = ? AND taken = 1
-                  AND status IN ('open', 'closed') AND (entry_time >= ? OR created_at > ?)
+                  AND status IN ('open', 'closed') AND (entry_time >= ? OR created_at > ?){only}
                   AND id NOT IN (SELECT trade_id FROM account_trades WHERE account = ?)
                 ORDER BY entry_time, id
                 """,
-                (baseline["id"], state["last_entry_time"], state["updated_at"], ACCOUNT),
+                (baseline["id"], state["last_entry_time"], state["updated_at"], *(coins or []), ACCOUNT),
             ).fetchall()
             for cand in candidates:
                 if cand["entry_time"] < state["last_entry_time"]:

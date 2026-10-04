@@ -255,4 +255,24 @@ ALTER TABLE trades ADD COLUMN venue TEXT NOT NULL DEFAULT 'binance-usdm';
 ALTER TABLE account_trades ADD COLUMN venue TEXT NOT NULL DEFAULT 'binance-usdm';
 """,
     ),
+    (
+        10,
+        "strategy v3",
+        """
+-- v3 (2026-10-04): the v2 rules, but the demo and live accounts trade XRP and SOL only (settings symbols).
+INSERT OR IGNORE INTO baseline_history VALUES
+    ('v3', 'v0-773ea9', 1791106200000, 'v2 rules on XRP and SOL only: LINK, ADA and SUI lost money in the replay; LINK stays in the shadow book',
+     0.248, 159, 108.2, 'v3 research 2026-10-04 (docs/research/2026-10-04-v3-coins.md): positive in all four quarters and on 5m and 15m; $150 with every signal +108%, max drawdown 18%');
+""",
+    ),
+    (
+        11,
+        "strategy v3.1",
+        """
+-- v3.1 (2026-10-04): the v2 rules on XRP, SOL and ETH (ETH replaced LINK in its TradingView layout).
+INSERT OR IGNORE INTO baseline_history VALUES
+    ('v3.1', 'v0-773ea9', 1791110000000, 'v2 rules on XRP, SOL and ETH: ETH was the only one of BTC, ETH, BNB, DOGE, AVAX, ADA, SUI and LINK that stayed positive in both halves',
+     0.237, 209, 154.9, 'research round 2, 2026-10-04 (docs/research/2026-10-04-v3-coins.md): positive in all four quarters; $150 with every signal +155%, max drawdown 20%; about 3.6 trades a day');
+""",
+    ),
 ]

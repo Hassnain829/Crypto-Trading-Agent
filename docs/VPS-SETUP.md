@@ -1,6 +1,22 @@
-# Moving the agent to a VPS (DatabaseMart, USA)
+# Moving the agent to a VPS
 
-The agent, the dashboard and TradingView Desktop run together on one Windows machine. These steps move them to a Windows VPS. A US VPS cannot reach Binance's API, so choose a venue that works there **before** the move (Settings > Exchanges > Trading exchange, e.g. `coinbase-us`; see [phase-4b-exchange-adapter.md](phases/phase-4b-exchange-adapter.md)).
+The agent, the dashboard and TradingView Desktop run together on one Windows machine. These steps move them to a Windows VPS.
+
+The VPS must be in a country where the trading venue's API works. **Binance refuses US IP addresses.** The plan (2026-10-04) is Binance with a Pakistani account on a VPS with a Pakistani IP.
+
+## 0. Choosing the VPS
+
+| Need | Why |
+|---|---|
+| Windows (Server 2022, or Windows 10/11 if offered) with the licence included | TradingView Desktop and the scripts here are Windows programs |
+| 4 vCPU, **8 GB RAM** (12–16 GB if you also keep VS Code with Claude Code open all the time) | TradingView uses about 2–2.7 GB, Windows about 2.5 GB, VS Code about 1 GB, the agent and dashboard about 0.3 GB |
+| 80–100 GB SSD / NVMe | Journal (about 200 MB now, growing), logs, TradingView cache |
+| A dedicated, static IPv4 address | The Binance API key is restricted to this address |
+| RDP access, unmetered or 1 TB+ traffic, backups, a short trial or refund period | Daily use and a safe first test |
+
+Before paying for a long period:
+1. Install TradingView Desktop and check that it opens the AGENT layouts.
+2. Run `python -m tradeagent doctor`. "Market data (Binance USDT-M perpetuals)" must be OK; a 451 or 403 error means the location is blocked.
 
 ## 1. The machine
 
@@ -35,7 +51,8 @@ The agent, the dashboard and TradingView Desktop run together on one Windows mac
 ## 3. Your data and keys
 
 - **Journal:** stop the agent on the PC (Overview > Stop), then copy `data\journal.db` to the same folder on the VPS. This keeps the history, the shadow book and the demo account. Without it the VPS starts empty and downloads market data itself.
-- **Keys:** paste them again in the VPS dashboard (Settings > Exchanges), or copy `.env` over a secure channel. Never commit `.env`. Allow only the VPS IP on the exchange's API key.
+- **Keys:** paste them again in the VPS dashboard (Settings > Exchanges), or copy `.env` over a secure channel. Never commit `.env`.
+- **Binance key settings:** Enable Reading and Enable Futures; never Withdrawals. Restrict access to the VPS's static IP. The futures account must be opened on Binance first.
 
 ## 4. Check and start
 

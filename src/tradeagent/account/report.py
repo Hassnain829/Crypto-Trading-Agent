@@ -46,12 +46,14 @@ def consistency_issues(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     return len(rows), issues
 
 
-def forward_sample(conn: sqlite3.Connection, since: int | None) -> list[float]:
-    """Net R of the current baseline's closed shadow trades (every signal it took) since `since`."""
+def forward_sample(conn: sqlite3.Connection, since: int | None, symbols: list[str] | None = None) -> list[float]:
+    """Net R of the current baseline's closed shadow trades (every signal it took) since `since`, on the coins
+    the account trades (`symbols`; None = every coin)."""
+    only = f" AND t.symbol IN ({', '.join('?' * len(symbols))})" if symbols else ""
     return [r[0] for r in conn.execute(
         "SELECT t.r_net FROM trades t JOIN variants v ON v.id = t.variant_id WHERE v.role = 'baseline'"
-        " AND t.book = 'exploration' AND t.taken = 1 AND t.status = 'closed' AND t.entry_time >= ?",
-        (since or 0,),
+        " AND t.book = 'exploration' AND t.taken = 1 AND t.status = 'closed' AND t.entry_time >= ?" + only,
+        (since or 0, *(symbols or [])),
     )]
 
 
@@ -104,7 +106,7 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
     days = (time.time() * 1000 - begin) / 86_400_000 if begin else 0.0
     expectancy = sum(r["r_net"] for r in closed) / len(closed) if closed else None
     profit_factor = sum(wins) / -sum(losses) if losses else None
-    sample = forward_sample(conn, started_at)
+    sample = forward_sample(conn, started_at, settings.paper_account.symbols)
     sample_exp = sum(sample) / len(sample) if sample else None
     sample_losses = -sum(r for r in sample if r < 0)
     sample_pf = sum(r for r in sample if r > 0) / sample_losses if sample_losses else None

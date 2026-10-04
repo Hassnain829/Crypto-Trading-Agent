@@ -7,7 +7,7 @@ Verified directly on TradingView Desktop (v3.4.1, Microsoft Store build) on 2026
 | Layout | Chart 1 | Chart 2 | Template | Sync |
 |---|---|---|---|---|
 | AGENT-XRP | `BINANCE:XRPUSDT.P` 5m | `BINANCE:XRPUSDT.P` 15m | Scalp | Symbol on, Interval off |
-| AGENT-LINK | `BINANCE:LINKUSDT.P` 5m | `BINANCE:LINKUSDT.P` 15m | Scalp | Symbol on, Interval off |
+| AGENT-ETH (saved as AGENT-LINK until renamed; id CztsiO1R) | `BINANCE:ETHUSDT.P` 5m | `BINANCE:ETHUSDT.P` 15m | Scalp | Symbol on, Interval off |
 | AGENT-SOL | `BINANCE:SOLUSDT.P` 5m | `BINANCE:SOLUSDT.P` 15m | Scalp | Symbol on, Interval off |
 | AGENT-HTF | `BINANCE:XRPUSDT.P` 1h | `BINANCE:XRPUSDT.P` 4h | Trend | Symbol on, Interval off |
 

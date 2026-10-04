@@ -29,6 +29,7 @@ def live_limits(settings):
 @pytest.fixture
 def world(settings):
     live_limits(settings)
+    settings.paper_account.symbols = None  # these tests use every coin; the coin filter has its own test
     conn = connect(settings.resolve(settings.journal.path))
     migrate(conn)
     conn.executemany(
@@ -335,3 +336,17 @@ def test_the_configured_demo_account_has_no_trade_limits(repo_root):
 
     rules = load_settings(repo_root).paper_account
     assert (rules.max_positions, rules.max_positions_per_coin, rules.daily_loss_stop) == (None, None, None)
+
+
+def test_the_account_and_the_gate_use_only_the_traded_coins(world):
+    conn, settings = world
+    settings.paper_account.symbols = ["XRP", "SOL"]
+    start = now_ms() - 10 * H
+    reset_account(conn, settings, from_now=True)
+    conn.execute("UPDATE account_state SET started_at = ?, last_entry_time = ?", (start, start))
+    xrp = add_trade(conn, "XRP", "long", start + M1, 1.0, 0.98, start + 40 * M1, 1.03)
+    link = add_trade(conn, "LINK", "long", start + 2 * M1, 20.0, 19.6, start + 41 * M1, 20.6)
+    AccountEngine(settings, conn).process()
+    assert paper(conn, xrp)["status"] == "closed" and paper(conn, link) is None  # LINK: shadow book only
+    report = account_report(conn, settings)
+    assert report["strategy_trades"] == 1

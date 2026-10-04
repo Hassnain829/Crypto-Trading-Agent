@@ -96,7 +96,8 @@ class Store:
     def baseline_version(self) -> str:
         """The baseline's version name (v2, ...) from baseline_history, or its variant id."""
         bid = self.baseline_id
-        version = self.one("SELECT version FROM baseline_history WHERE variant_id = ?", (bid,)) if bid else None
+        version = self.one("SELECT version FROM baseline_history WHERE variant_id = ? ORDER BY adopted_at DESC LIMIT 1",
+                           (bid,)) if bid else None
         return version or (bid or "–")
 
     @property

@@ -11,14 +11,15 @@ def _raw(repo_root):
 
 def test_repo_settings_load(repo_root):
     s = load_settings(repo_root)
-    assert list(s.exchange.symbols) == ["XRP", "LINK", "SOL"]
+    assert list(s.exchange.symbols) == ["XRP", "ETH", "SOL"]
+    assert s.paper_account.symbols == ["XRP", "SOL", "ETH"]
     assert s.venue == "binance-usdm" and s.market("XRP") == "XRP/USDT:USDT"
     assert s.market("XRP", "coinbase-us") == "XPP-20DEC30-CDE"
     assert s.exchange.symbols["XRP"].tradingview == "BINANCE:XRPUSDT.P"
     assert s.timeframes.trade == ["5m", "15m"]
     assert s.timeframes.overview == ["1h", "4h"]
     assert s.tradingview.signal_version == 1
-    assert set(s.tradingview.layouts) == {"AGENT-XRP", "AGENT-LINK", "AGENT-SOL", "AGENT-HTF"}
+    assert set(s.tradingview.layouts) == {"AGENT-XRP", "AGENT-ETH", "AGENT-SOL", "AGENT-HTF"}
     assert s.paper_account.risk_per_trade == 0.02
 
 

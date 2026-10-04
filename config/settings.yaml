@@ -12,10 +12,10 @@ exchange:
       tradingview: "BINANCE:XRPUSDT.P"
       markets: {binance-usdm: "XRP/USDT:USDT", coinbase-us: "XPP-20DEC30-CDE", kraken-futures: "PF_XRPUSD",
                 coinbase-intl: "XRP-PERP", bitget: "XRP/USDT:USDT", mexc: "XRP/USDT:USDT"}
-    LINK:
-      tradingview: "BINANCE:LINKUSDT.P"
-      markets: {binance-usdm: "LINK/USDT:USDT", coinbase-us: "LNP-20DEC30-CDE", kraken-futures: "PF_LINKUSD",
-                coinbase-intl: "LINK-PERP", bitget: "LINK/USDT:USDT", mexc: "LINK/USDT:USDT"}
+    ETH:                         # v3.1 (2026-10-04): replaced LINK, which lost money with these rules
+      tradingview: "BINANCE:ETHUSDT.P"
+      markets: {binance-usdm: "ETH/USDT:USDT", coinbase-us: "ETP-20DEC30-CDE", kraken-futures: "PF_ETHUSD",
+                coinbase-intl: "ETH-PERP", bitget: "ETH/USDT:USDT", mexc: "ETH/USDT:USDT"}
     SOL:
       tradingview: "BINANCE:SOLUSDT.P"
       markets: {binance-usdm: "SOL/USDT:USDT", coinbase-us: "SLP-20DEC30-CDE", kraken-futures: "PF_SOLUSD",
@@ -40,7 +40,7 @@ tradingview:
   timezone: system               # time axis of the AGENT charts and dashboard times: system (this PC's) or e.g. Asia/Karachi
   layouts:                       # saved layout name -> layout id (from the chart URL)
     AGENT-XRP: "K7xX5RYP"
-    AGENT-LINK: "CztsiO1R"
+    AGENT-ETH: "CztsiO1R"          # the former AGENT-LINK layout, now showing ETHUSDT.P
     AGENT-SOL: "NZPfFmj0"
     AGENT-HTF: "9yUw9zox"
 
@@ -64,6 +64,7 @@ paper_account:                   # demo account: takes every baseline signal (th
   max_positions_per_coin: null   # null = no limit (live: e.g. 1)
   daily_loss_stop: null          # null = off; live: 0.10-0.12 of the day's starting balance
   leverage_cap: 10               # each position is sized down to the free margin at 10x
+  symbols: [XRP, SOL, ETH]       # v3.1 (2026-10-04): the coins the demo trades
 
 live_account:                    # limits for live trading (Phase 6); edit them in the dashboard before going live
   starting_balance: 150
@@ -72,6 +73,7 @@ live_account:                    # limits for live trading (Phase 6); edit them 
   max_positions_per_coin: 1
   daily_loss_stop: 0.10          # 10% of the day's starting balance
   leverage_cap: 10
+  symbols: [XRP, SOL, ETH]       # coins traded live (v3.1)
 
 research:                        # daily Claude research run (Phase 5)
   enabled: false

@@ -59,3 +59,4 @@ variants:
   stop_1h_swing:    {stop: {anchor: "1h"}}
   filter_vwap:      {filters: {vwap: true}}
   trigger_strong:   {trigger: {long: strong_buy, short: strong_sell}}
+  trend15:          {filters: {trend_15m: true}}          # 5m signals only with the 15m trend (research 2026-10-04: +0.276R on XRP SOL ETH, steadiest)

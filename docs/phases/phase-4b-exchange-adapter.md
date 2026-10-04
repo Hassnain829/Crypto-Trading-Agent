@@ -73,7 +73,14 @@ On Binance the same signals made about +60%.
 - The US-session filters keep their edge on Coinbase because liquidity is higher then.
 - These variants were chosen after looking at the same history, so they need forward confirmation before they become the baseline (Phase 5).
 
-**Open decision (the user's):**
+**Decided (2026-10-04):** Binance USDT-M (`binance-usdm`), with the user's own account (Pakistani KYC), run on a Windows VPS with a Pakistani IP.
+- The live budget is at most $200. Coinbase US contracts do not fit it; at $200 only ADA would trade.
+- Kraken support confirmed that Kraken Derivatives US has no trading API.
+- Binance.US has no futures, and NinjaTrader/Tradovate has no perpetuals.
+
+The adapter stays: other venues remain a setting away, and `venue-replay` checks them.
+
+The open options that were considered:
 1. Live venue: Coinbase US now (API ready, needs about $1,000+ for 2% risk with these contracts), or Kraken US once Kraken confirms API access (contracts 5–50 times smaller).
 2. Demo balance: the planned live balance, because $150 cannot hold one Coinbase contract.
 3. Strategy on the US venue: forward-test the session filters and XRP + SOL only as challengers.
@@ -91,4 +98,4 @@ On Binance the same signals made about +60%.
 - [x] Demo fills, contract sizes and the clock come from the chosen venue.
 - [x] A replay compares the strategy on another venue without touching the journal.
 - [x] Tests: venue settings, quiet-minute filling, history in steps, contract sizing, PEM keys, sleep and network messages.
-- [ ] The user chooses the live venue, and the forward test restarts on it.
+- [x] The user chose the live venue: Binance USDT-M (unchanged, so the forward test continues).

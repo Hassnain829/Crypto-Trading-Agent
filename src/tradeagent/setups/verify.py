@@ -52,10 +52,12 @@ def verify_trade(conn: sqlite3.Connection, settings: Settings, trade: sqlite3.Ro
     if not 0 <= trade["confirm_time"] - trade["trigger_time"] <= p["confirmation"]["window"] * step:
         issues.append("confirmation outside the window")
 
-    if trade["entry_time"] != trade["confirm_time"] + step:
+    order_time = trade["confirm_time"] + step  # the order goes in right after the confirming candle
+    rest_ms = ((p.get("entry") or {}).get("limit_minutes", 1) - 1) * 60_000  # a resting limit may fill later
+    if not order_time <= trade["entry_time"] <= order_time + rest_ms:
         issues.append("entry is not right after the confirming candle")
     entry = conn.execute(
-        "SELECT open FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?", (symbol, trade["entry_time"])
+        "SELECT open FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?", (symbol, order_time)
     ).fetchone()
     if entry is None or not close_enough(entry["open"], trade["entry_ref"]):
         issues.append(f"entry {trade['entry_ref']} != Binance 1m open {entry['open'] if entry else None}")
@@ -71,7 +73,7 @@ def verify_trade(conn: sqlite3.Connection, settings: Settings, trade: sqlite3.Ro
         hourly = conn.execute(
             "SELECT high, low FROM candles WHERE symbol = ? AND timeframe = '1h' AND open_time + 3600000 <= ?"
             " ORDER BY open_time DESC LIMIT ?",
-            (symbol, trade["entry_time"], lookback),
+            (symbol, order_time, lookback),
         ).fetchall()
         level = min(r["low"] for r in hourly) if sign > 0 else max(r["high"] for r in hourly)
         stop = min(stop, level) if sign > 0 else max(stop, level)
@@ -91,13 +93,15 @@ def verify_trade(conn: sqlite3.Connection, settings: Settings, trade: sqlite3.Ro
     # at the 1m open right after that trigger candle.
     costs = settings.costs
     limit = (p.get("entry") or {}).get("mode") == "limit"
-    if limit:  # the limit order must have filled: the entry minute traded strictly through the entry price
-        first = conn.execute(
-            "SELECT high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?",
-            (symbol, trade["entry_time"]),
-        ).fetchone()
-        if not (first["low"] < trade["entry_ref"] if sign > 0 else first["high"] > trade["entry_ref"]):
-            issues.append("limit entry did not fill")
+    if limit:  # the limit order fills in the first minute that trades strictly through the entry price
+        minutes = conn.execute(
+            "SELECT open_time, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time BETWEEN ? AND ?"
+            " ORDER BY open_time", (symbol, order_time, trade["entry_time"]),
+        ).fetchall()
+        through = [m["open_time"] for m in minutes
+                   if (m["low"] < trade["entry_ref"] if sign > 0 else m["high"] > trade["entry_ref"])]
+        if not through or through[0] != trade["entry_time"]:
+            issues.append("limit entry did not fill in the recorded minute")
     entry_fill = trade["entry_ref"] if limit else trade["entry_ref"] * (1 + sign * costs.slippage)
     scheduled = None
     if p["exit"].get("opposite_signal"):

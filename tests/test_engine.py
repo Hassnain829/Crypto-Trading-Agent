@@ -265,3 +265,63 @@ def test_engine_waits_for_a_quiet_entry_minute_to_get_its_candle(world):
     conn.execute("INSERT INTO candles VALUES ('XRP', '1m', ?, 100.1, 100.1, 100.1, 100.1, 0)", (T0 + 75 * M1,))
     counts = SetupEngine(settings, variants, conn).process()  # the flat candle arrived once the minute settled
     assert counts["trades_taken"] == 2
+
+
+def test_a_new_option_at_its_default_keeps_the_variant_ids():
+    from tradeagent.setups.config import hashable_params
+
+    plain = _variant("v0")
+    explicit = _variant("v0", {"entry": {"limit_minutes": 1}})
+    assert plain.id == explicit.id  # adding an option must not rename stored variants
+    assert "limit_minutes" not in hashable_params(plain.params)["entry"]
+    assert _variant("v0", {"entry": {"limit_minutes": 3}}).id != plain.id
+
+
+def test_a_resting_limit_order_fills_in_a_later_minute(world, repo_root):
+    conn, variants, settings = world
+    resting = _variant("rest3", {"entry": {"mode": "limit", "limit_minutes": 3}}, role="baseline")
+    one = _variant("rest1", {"entry": {"mode": "limit", "limit_minutes": 1}})
+    register_variants(conn, [resting, one])
+    entry = T0 + 5 * M1  # the confirming candle (i=0) closes at T0+5m
+    conn.execute("UPDATE candles SET low = 100.1 WHERE timeframe = '1m' AND open_time IN (?, ?)",
+                 (entry, entry + M1))  # minutes 1 and 2 do not trade through 100.1
+    conn.execute("UPDATE candles SET low = 100.0 WHERE timeframe = '1m' AND open_time = ?", (entry + 2 * M1,))
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, [resting, one], conn).process()
+    rows = {r["variant_id"].split("-")[0]: r for r in conn.execute("SELECT * FROM trades")}
+    assert rows["rest1"]["status"] == "missed"
+    assert rows["rest3"]["status"] == "open" and rows["rest3"]["entry_time"] == entry + 2 * M1
+    assert rows["rest3"]["entry_ref"] == pytest.approx(100.1)  # the price of the first minute's open
+
+
+def test_an_offset_limit_waits_for_a_pullback_and_keeps_the_planned_target(world):
+    conn, variants, settings = world
+    pull = _variant("pull", {"entry": {"mode": "limit", "limit_minutes": 30, "offset_r": 0.5}}, role="baseline")
+    register_variants(conn, [pull])
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, [pull], conn).process()
+    t = conn.execute("SELECT * FROM trades").fetchone()
+    swing = min(99.0 + 0.01 * (i % 7) for i in range(-7, 3))
+    reference = 100.1 - swing
+    assert t["status"] == "missed"  # the 1m lows (99.9) never reach the price halfway to the stop
+    conn.execute("DELETE FROM trades")
+    conn.execute("DELETE FROM setups")
+    conn.execute("DELETE FROM engine_state")
+    conn.execute("UPDATE candles SET low = 99.0 WHERE timeframe = '1m' AND open_time = ?", (T0 + 9 * M1,))
+    SetupEngine(settings, [pull], conn).process()
+    t = conn.execute("SELECT * FROM trades").fetchone()
+    assert t["status"] == "open" and t["entry_time"] == T0 + 9 * M1
+    assert t["entry_ref"] == pytest.approx(100.1 - 0.5 * reference)
+    assert t["target"] == pytest.approx(100.1 + 1.5 * reference)  # the planned target, not 1.5R from the fill
+
+
+def test_trend_15m_filters_5m_signals_against_the_15m_trend(world):
+    conn, variants, settings = world
+    with15 = _variant("with15", {"filters": {"trend_15m": True}}, role="baseline")
+    register_variants(conn, [with15])
+    bearish15 = {"zerolag": {"upper_band": 101.0, "lower_band": None, "basis": 100.0}}
+    store_snapshot(conn, Snapshot("XRP", "15m", T0 - 15 * M1, 1, T0, values=bearish15, ohlcv=[100, 101, 99, 100, 1]))
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, [with15], conn).process()
+    t = conn.execute("SELECT taken, reason FROM trades").fetchone()
+    assert (t["taken"], t["reason"]) == (0, "trend_15m")

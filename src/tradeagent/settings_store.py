@@ -25,7 +25,7 @@ PREFIX = "cfg:"
 class EditableField:
     path: str  # section.key in settings.yaml
     label: str
-    kind: str  # money | percent | optpercent | int | optint | float | bool | select | time
+    kind: str  # money | percent | optpercent | int | optint | float | bool | select | time | coins
     help: str = ""
     live: bool = True  # takes effect in the next agent cycle (False: on the next agent start)
     choices: tuple[str, ...] = field(default_factory=tuple)
@@ -49,9 +49,12 @@ FIELDS: tuple[EditableField, ...] = (
     EditableField("paper_account.leverage_cap", "Leverage cap", "float", "Positions are sized down to fit the margin at this leverage."),
     EditableField("paper_account.max_positions", "Max open positions", "optint", "Empty = no limit."),
     EditableField("paper_account.max_positions_per_coin", "Max positions per coin", "optint", "Empty = no limit."),
+    EditableField("paper_account.symbols", "Coins traded", "coins",
+          "The demo account trades only these coins. The shadow book keeps testing every coin."),
     EditableField("paper_account.daily_loss_stop", "Daily loss stop", "optpercent",
           "Stops new entries for the rest of the UTC day after this loss. Empty = off."),
     EditableField("live_account.starting_balance", "Live balance", "money", "Balance the live preview starts with."),
+    EditableField("live_account.symbols", "Coins traded live", "coins", "Live trading (and the live preview) uses only these coins."),
     EditableField("live_account.risk_per_trade", "Risk per trade", "percent"),
     EditableField("live_account.leverage_cap", "Leverage cap", "float"),
     EditableField("live_account.max_positions", "Max open positions", "optint", "Empty = no limit."),

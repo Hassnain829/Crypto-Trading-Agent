@@ -80,7 +80,10 @@ def _to_input(f: EditableField, value: Any) -> Any:
     return value
 
 
-def _from_input(f: EditableField, value: Any) -> Any:
+def _from_input(f: EditableField, value: Any, all_coins: list[str] | None = None) -> Any:
+    if f.kind == "coins":  # every coin (or none picked) = no restriction
+        picked = [c for c in (all_coins or []) if c in (value or [])]
+        return None if not picked or picked == all_coins else picked
     if f.kind in ("optint", "optpercent") and (value is None or value == ""):
         return None
     if f.kind in ("percent", "optpercent"):
@@ -111,6 +114,10 @@ def form_group(store: Store, title: str, fields: list[EditableField]) -> dict[st
                         el = ui.select(options, value=value, label=f.label).classes("w-full")
                     elif f.kind == "time":
                         el = ui.input(f.label, value=value).props("mask='##:##'").classes("w-full")
+                    elif f.kind == "coins":
+                        coins = list(settings.exchange.symbols)
+                        el = ui.select(coins, value=value or coins, label=f.label, multiple=True).classes("w-full").props(
+                            "use-chips")
                     else:
                         suffix = {"money": "$", "percent": "%", "optpercent": "%"}.get(f.kind, "")
                         step = (f.step * 100 if f.step and f.kind in ("percent", "optpercent") else f.step) or (
@@ -124,6 +131,8 @@ def form_group(store: Store, title: str, fields: list[EditableField]) -> dict[st
                         ui.label("next cycle" if f.live else "on restart").classes("pill").style("font-size:11px")
                         default_text = "off / no limit" if default is None else (
                             f"{default * 100:g}%" if f.kind in ("percent", "optpercent") else str(default))
+                        if f.kind == "coins":
+                            default_text = "all coins" if default is None else ", ".join(default)
                         ui.label(f"default {default_text}").classes("muted text-xs")
                         if overridden:
                             ui.link("reset", "#").classes("text-xs").on(
@@ -135,7 +144,7 @@ def form_group(store: Store, title: str, fields: list[EditableField]) -> dict[st
             errors, saved = [], 0
             for path, (f, el) in inputs.items():
                 try:
-                    value = _from_input(f, el.value)
+                    value = _from_input(f, el.value, list(store.settings.exchange.symbols))
                 except (TypeError, ValueError):
                     errors.append(f"{f.label}: not a valid number")
                     continue
@@ -188,7 +197,7 @@ def live_preview_panel(store: Store, inputs: dict[str, Any]) -> None:
                 if key == "exchange":
                     continue
                 try:
-                    values[key] = _from_input(f, el.value)
+                    values[key] = _from_input(f, el.value, list(store.settings.exchange.symbols))
                 except (TypeError, ValueError):
                     ui.notify(f"{f.label}: not a valid number", type="negative")
                     return

@@ -21,6 +21,8 @@ from typing import Any
 from tradeagent.config import Settings
 from tradeagent.journal.db import now_ms
 from tradeagent.market.candles import SETTLE_MS, tf_ms
+
+MINUTE_MS = 60_000
 from tradeagent.setups.config import SetupParams, Variant
 from tradeagent.sim.simulator import Costs, TradeState, open_trade
 
@@ -50,6 +52,9 @@ class SetupEngine:
         self.conn = conn
         self.costs = costs_from(settings)
         self.timeframes = sorted({tf for v in variants for tf in v.params.timeframes}, key=tf_ms)
+        # A limit order may rest several minutes: a candle is handled once all of them are known.
+        self.entry_wait_ms = (max((v.params.entry.limit_minutes for v in variants if v.params.entry.mode == "limit"),
+                                  default=1) - 1) * MINUTE_MS
 
     def _get_state(self, key: str) -> int:
         row = self.conn.execute("SELECT value FROM engine_state WHERE key = ?", (key,)).fetchone()
@@ -87,8 +92,8 @@ class SetupEngine:
                 ).fetchall()
                 for row in rows:
                     entry_time = row["bar_time"] + step
-                    if entry_time > newest_1m:
-                        break  # wait until the entry candle is closed and synced
+                    if entry_time + self.entry_wait_ms > newest_1m:
+                        break  # wait until the entry candle (and a resting limit order's minutes) closed and synced
                     entry = self.conn.execute(
                         "SELECT open, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?",
                         (symbol, entry_time),
@@ -189,12 +194,10 @@ class SetupEngine:
         p = v.params
         side = setup["side"]
         sign = 1 if side == "long" else -1
-        entry_ref = entry["open"]
+        order_price = entry_ref = entry["open"]
         limit = p.entry.mode == "limit"
-        # A limit order at the entry price fills only if the entry minute trades strictly through it.
-        filled = not limit or (entry["low"] < entry_ref if sign > 0 else entry["high"] > entry_ref)
         trend = "bull" if side == "long" else "bear"
-        entry_time = row["bar_time"] + tf_ms(tf)
+        entry_time = order_time = row["bar_time"] + tf_ms(tf)  # decisions use order_time; entry_time = the fill
 
         problems: list[str] = []
         stop: float | None = None
@@ -215,7 +218,7 @@ class SetupEngine:
             hourly = self.conn.execute(
                 "SELECT high, low FROM candles WHERE symbol = ? AND timeframe = '1h' AND open_time + 3600000 <= ?"
                 " ORDER BY open_time DESC LIMIT ?",
-                (symbol, entry_time, p.stop.lookback),
+                (symbol, order_time, p.stop.lookback),
             ).fetchall()
             if len(hourly) < p.stop.lookback:
                 problems.append("not enough 1h candles for the stop")
@@ -225,7 +228,22 @@ class SetupEngine:
         if reference is not None and p.stop.multiplier != 1.0:
             stop = entry_ref - sign * p.stop.multiplier * abs(entry_ref - stop)
 
-        htf = {name: self._htf_trend(symbol, name, entry_time) for name in ("1h", "4h")}
+        # The limit price: the open, or offset_r of the way toward the stop. It fills in the first minute (within
+        # limit_minutes) that trades strictly through it; the trade starts in that minute.
+        if limit and p.entry.offset_r and reference is not None:
+            entry_ref = order_price - sign * p.entry.offset_r * reference
+        filled = not limit or (entry["low"] < entry_ref if sign > 0 else entry["high"] > entry_ref)
+        if limit and not filled and p.entry.limit_minutes > 1:
+            for c in self.conn.execute(
+                "SELECT open_time, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time > ?"
+                " AND open_time < ? ORDER BY open_time",
+                (symbol, order_time, order_time + p.entry.limit_minutes * MINUTE_MS),
+            ):
+                if c["low"] < entry_ref if sign > 0 else c["high"] > entry_ref:
+                    filled, entry_time = True, c["open_time"]
+                    break
+
+        htf = {name: self._htf_trend(symbol, name, order_time) for name in ("1h", "4h")}
         failed: list[str] = []
         if p.filters.vwap:
             vwap = (values.get("vwap") or {}).get("vwap")
@@ -242,13 +260,15 @@ class SetupEngine:
             needed = ["1h"] if p.filters.htf == "1h" else ["1h", "4h"]
             if any(htf[name] != trend for name in needed):
                 failed.append(f"htf_{p.filters.htf}")
-        if p.filters.min_stop_pct > 0 and reference is not None and reference / entry_ref * 100 < p.filters.min_stop_pct:
+        if p.filters.min_stop_pct > 0 and reference is not None and reference / order_price * 100 < p.filters.min_stop_pct:
             failed.append("min_stop_pct")
         if p.filters.zl_own and zerolag_trend(values) != trend:
             failed.append("zl_own")
+        if p.filters.trend_15m and tf == "5m" and self._htf_trend(symbol, "15m", order_time) != trend:
+            failed.append("trend_15m")
         if p.filters.session_utc is not None:
             start, end = p.filters.session_utc
-            if not start <= time.gmtime(entry_time / 1000).tm_hour < end:
+            if not start <= time.gmtime(order_time / 1000).tm_hour < end:
                 failed.append("session")
 
         mode = p.exit.mode
@@ -270,10 +290,10 @@ class SetupEngine:
             stop_value = stop
         else:
             assert stop is not None and reference is not None
-            scale = reference / abs(entry_ref - stop)  # 1 unless the stop was moved beyond the chart's swing
-            sim = open_trade(
+            scale = reference / abs(entry_ref - stop)  # 1 unless the stop moved or the limit was offset
+            sim = open_trade(  # the target stays the planned price: order price + take_profit_r x the swing risk
                 side=side, mode=mode, entry_time=entry_time, entry_ref=entry_ref, stop=stop,
-                take_profit_r=p.exit.take_profit_r * scale, partial_r=p.exit.partial_r * scale,
+                take_profit_r=(p.exit.take_profit_r + p.entry.offset_r) * scale, partial_r=p.exit.partial_r * scale,
                 partial_fraction=p.exit.partial_fraction, trail_lookback=p.exit.trail_lookback, costs=self.costs,
                 breakeven_r=p.exit.breakeven_r,
                 time_stop_at=entry_time + p.exit.max_candles * tf_ms(tf) if p.exit.max_candles else None,

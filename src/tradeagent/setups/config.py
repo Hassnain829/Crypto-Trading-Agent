@@ -41,6 +41,7 @@ class FilterParams(_Strict):
     htf: Literal["none", "1h", "1h+4h", "against_4h"]  # with the 1h / 1h+4h Zero Lag trend, or against the 4h one
     min_stop_pct: float = Field(ge=0, le=5)
     zl_own: bool = False  # the signal must agree with the Zero Lag trend of its own chart
+    trend_15m: bool = False  # 5m signals only when the 15m Zero Lag trend agrees (15m signals are not affected)
     session_utc: tuple[int, int] | None = None  # only entries whose UTC hour is in [start, end)
 
     @field_validator("session_utc")
@@ -55,6 +56,12 @@ class EntryParams(_Strict):
     # market: at the 1m open after the signal (taker fee + slippage). limit: a limit order at that price,
     # filled only if the price trades through it within that first minute (maker fee, no slippage).
     mode: Literal["market", "limit"] = "market"
+    # limit: how many minutes the order rests. It fills in the first of these minutes that trades through
+    # the price; the trade starts in that minute.
+    limit_minutes: int = Field(default=1, ge=1, le=60)
+    # limit: price this share of the way from the open toward the stop (0 = the open), e.g. 0.3 waits for a
+    # pullback toward support. The target stays the planned price, so a filled order has a better R:R.
+    offset_r: float = Field(default=0.0, ge=0.0, le=0.9)
 
 
 class StopParams(_Strict):
@@ -93,6 +100,21 @@ class SetupParams(_Strict):
         return value
 
 
+# Options added after variants were first stored, with their defaults. At the default they are left out of
+# the hash, so adding an option never renames the existing variants (which would split their history).
+ADDED_LATER: dict[tuple[str, str], Any] = {
+    ("entry", "limit_minutes"): 1, ("entry", "offset_r"): 0.0, ("filters", "trend_15m"): False,
+}
+
+
+def hashable_params(params: SetupParams) -> dict[str, Any]:
+    data = params.model_dump()
+    for (section, key), default in ADDED_LATER.items():
+        if data.get(section, {}).get(key) == default:
+            del data[section][key]
+    return data
+
+
 @dataclass(frozen=True)
 class Variant:
     name: str
@@ -101,7 +123,7 @@ class Variant:
 
     @property
     def params_hash(self) -> str:
-        canonical = json.dumps(self.params.model_dump(), sort_keys=True, separators=(",", ":"))
+        canonical = json.dumps(hashable_params(self.params), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).hexdigest()
 
     @property

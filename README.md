@@ -61,7 +61,7 @@ Other commands:
 | Item | Decision |
 |---|---|
 | Exchange | Binance USDT-M perpetual futures |
-| Coins | XRP, LINK, SOL |
+| Coins | XRP, SOL, ETH (strategy v3.1, 2026-10-04; LINK was dropped) |
 | Timeframes | Trade on 5m and 15m; overview on 1h and 4h |
 | Signals | TradingView Essential, read over CDP (no webhook alerts) |
 | Indicators in Python | None. Python only reads TradingView. |
