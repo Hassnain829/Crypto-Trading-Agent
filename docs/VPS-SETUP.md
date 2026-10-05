@@ -19,7 +19,7 @@ Only one computer may run the agent: both would read the same TradingView accoun
 
 | Need | Why |
 |---|---|
-| Windows (Server 2022, or Windows 10/11 if offered) with the licence included | TradingView Desktop and the scripts here are Windows programs |
+| Windows **build 19042 or newer** (Windows Server 2022, or Windows 10 20H2+ / 11), activated, licence included | TradingView Desktop (MSIX) requires 10.0.19042. **Windows Server 2019 (build 17763) cannot install it**, and an expired evaluation edition shuts itself down regularly |
 | 4 vCPU, **8 GB RAM** (12–16 GB if you also keep VS Code with Claude Code open all the time) | TradingView uses about 2–2.7 GB, Windows about 2.5 GB, VS Code about 1 GB, the agent and dashboard about 0.3 GB |
 | 80–100 GB SSD / NVMe | Journal (about 200 MB now, growing), logs, TradingView cache |
 | A dedicated, static IPv4 address | The Binance API key is restricted to this address |
@@ -54,7 +54,14 @@ Before paying for a long period:
    .venv\Scripts\python -m pip install -r requirements.txt -e .
    ```
 3. **TradingView Desktop:**
-   - Install it from tradingview.com/desktop (MSIX package) and log in.
+   - Download the MSIX from tradingview.com/desktop and install it, then log in.
+   - **A server without the Microsoft Store** cannot install the MSIX by double-click (it hangs at "Hang on while we get your app's information"). Install from an admin PowerShell instead; the package needs Microsoft.VCLibs.140.00.UWPDesktop first:
+     ```powershell
+     Invoke-WebRequest https://aka.ms/Microsoft.VCLibs.x64.14.00.Desktop.appx -OutFile $env:TEMP\vclibs.appx
+     Add-AppxPackage $env:TEMP\vclibs.appx
+     Add-AppxPackage "$env:USERPROFILE\Downloads\TradingView.msix"
+     Get-AppxPackage *TradingView*     # TradingView.Desktop_n534cwy3pjxzj, as on the PC
+     ```
    - Your plan may allow only one device at a time; logging in on the VPS can log out the PC.
    - Open the four AGENT layouts by id: AGENT-XRP, AGENT-ETH, AGENT-SOL and AGENT-HTF. The ids are in `config/settings.yaml`; the ETH layout may still be named "AGENT-LINK" in TradingView. The agent also opens them itself.
    - Do not change the symbol on an AGENT tab. The agent switches a coin tab back to its symbol, but the reads around the change are lost until then. Look at other charts in your own layout.
