@@ -6,9 +6,16 @@
 #   v2 (2026-10-03): stops of at least 1.5%, and limit-order entries (maker fee, no slippage).
 #                    Positive in all four sub-periods of the ~100-day history; must hold on fresh data.
 #   See docs/research/2026-10-03-strategy-review.md.
+#   v3, v3.1 (2026-10-04): the v2 rules on XRP, SOL and ETH (the coins are chosen in settings.yaml).
 # Every variant changes exactly ONE thing from the baseline (video_original is a reference with more).
 # All of them run in parallel on the same signals in the exploration book. Changing a variant's rules
-# gives it a new id automatically. Retired variants and their results are in the research documents.
+# gives it a new id automatically, and the agent picks up changes to this file in its next cycle.
+#
+# Learning loop (Phase 5): the variants below are tracked as experiments and judged automatically.
+# Claude's proposals are stored in the journal, not here (see the Learning page). A promotion (automatic,
+# or the Promote button on the Learning page) writes the change into this baseline, removes the
+# challenger's line and adds a version line above; a backup goes to data/backups.
+# Retired variants and why: research/lessons.md and research/results.tsv.
 
 baseline:
   timeframes: ["5m", "15m"]
@@ -47,16 +54,12 @@ variants:
   # Reference: the video's original rules (no minimum stop, market entry).
   video_original:   {filters: {min_stop_pct: 0.0}, entry: {mode: market}}
 
-  # One change each
+  # One change each. Retired 2026-10-04 (worse than the baseline on the history): min_stop_1pct,
+  # min_stop_2pct, confirm_0, stop_1h_swing, trigger_strong.
   market_entry:     {entry: {mode: market}}               # what the limit entry is worth on fresh data
-  min_stop_1pct:    {filters: {min_stop_pct: 1.0}}
-  min_stop_2pct:    {filters: {min_stop_pct: 2.0}}
   session_13_21:    {filters: {session_utc: [13, 21]}}    # US session, 18:00-02:00 Pakistan time (strongest candidate)
   session_07_21:    {filters: {session_utc: [7, 21]}}     # Europe + US, 12:00-02:00 Pakistan time
   htf_against_4h:   {filters: {htf: against_4h}}
   tf_15m:           {timeframes: ["15m"]}
-  confirm_0:        {confirmation: {window: 0}}
-  stop_1h_swing:    {stop: {anchor: "1h"}}
   filter_vwap:      {filters: {vwap: true}}
-  trigger_strong:   {trigger: {long: strong_buy, short: strong_sell}}
   trend15:          {filters: {trend_15m: true}}          # 5m signals only with the 15m trend (research 2026-10-04: +0.276R on XRP SOL ETH, steadiest)

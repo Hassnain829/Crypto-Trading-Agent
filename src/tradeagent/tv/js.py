@@ -49,14 +49,17 @@ _TAB_STATE = """function () {
   };
 }"""
 
-# Optionally switch the symbol, then wait until every chart in the tab is loaded, has at least
-# minBars of history, and every study has recomputed over that history.
+# Optionally make sure every chart shows targetSymbol (switching it back if someone changed it), then wait
+# until every chart in the tab is loaded, has at least minBars of history, and every study has recomputed.
+# Charts after the first follow the first when the layout syncs symbols; otherwise they are switched after 3 s.
 _PREPARE = """async function (targetSymbol, minBars, timeoutMs, maxRequests, acceptLess) {
 """ + _HELPERS + """
   var charts = api._chartWidgetCollection.getAll();
   var started = Date.now();
   var switched = false;
-  if (targetSymbol && charts[0].model().mainSeries().symbol() !== targetSymbol) {
+  var before = charts.map(function (cw) { return cw.model().mainSeries().symbol(); });
+  var fixed = charts.map(function () { return false; });
+  if (targetSymbol && before[0] !== targetSymbol) {
     api.chart(0).setSymbol(targetSymbol, {});
     switched = true;
   }
@@ -85,6 +88,12 @@ _PREPARE = """async function (targetSymbol, minBars, timeoutMs, maxRequests, acc
     for (var i = 0; i < charts.length; i++) {
       var cw = charts[i];
       var ms = cw.model().mainSeries();
+      if (targetSymbol && i > 0 && !fixed[i] && Date.now() - started > 3000 && ms.symbol() !== targetSymbol
+          && !ms.isLoading()) {
+        api.chart(i).setSymbol(targetSymbol, {});  // this layout does not sync symbols between its charts
+        fixed[i] = true;
+        switched = true;
+      }
       if (ms._status.value().seriesStatus !== 3 || ms.isLoading()) sawLoading = true;
       if (!seriesReady(cw)) { ok = false; continue; }
       if (ms.bars().size() < minBars) {
@@ -103,7 +112,7 @@ _PREPARE = """async function (targetSymbol, minBars, timeoutMs, maxRequests, acc
     ok = false;
   }
   return {
-    ok: ok, ms: Date.now() - started,
+    ok: ok, ms: Date.now() - started, switched: switched, before: before,
     charts: charts.map(function (cw, i) {
       var st = seriesState(cw);
       st.index = i;

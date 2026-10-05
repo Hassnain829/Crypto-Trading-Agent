@@ -44,7 +44,7 @@ async def backfill_snapshots(reader: SignalReader, bars: int | None = None, *, r
         started = time.monotonic()
         prep = await cdp.evaluate(
             page,
-            js.prepare(tv_symbol if overview else None, min_bars, timeout_ms,
+            js.prepare(tv_symbol, min_bars, timeout_ms,
                        max_requests=100 if bars else 5, accept_less=bool(bars)),
             await_promise=True,
         )

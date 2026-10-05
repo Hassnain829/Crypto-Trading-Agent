@@ -97,3 +97,86 @@ Changing an indicator setting changes the signals for every variant, so it is ha
 | Pro usage limits are reached | Research waits; trading and shadow are not affected |
 | `claude -p` later requires an API key (Claude Code plans to make `--bare` the default, and it ignores subscription logins) | Switch the research runner to the Claude API with a config change |
 | Overfitting | One variable at a time, re-confirmation, experiment count shown |
+
+## As built (2026-10-04)
+
+### How it works
+
+1. **The rules a proposal may change.** `src/tradeagent/learning/space.py` lists the 26 allowed rules with their ranges and steps. The research pack shows them with their current values.
+   - A proposal changes exactly one rule.
+   - Costs, data, indicator settings, account limits and the judge's settings cannot be changed.
+2. **Proposal.** `experiment propose <file>` reads JSON in the format of `research/proposal.schema.json`. That schema is generated from `space.py`, and a test keeps the two in sync.
+   - The Experiment Manager checks the name, the hypothesis, the rule and its value.
+   - It also refuses a change already tested against the same baseline, and a new proposal when 15 challengers are open.
+3. **History screen** (`screen.py`). The baseline and all waiting proposals are replayed together on a copy of the journal (`data/replay/journal-screen.db`). This takes 2–4 minutes and runs at low priority.
+   - A proposal passes if it beats the baseline over the whole history by the judge's rules.
+   - It must also not be worse in either half. The halves hold equal numbers of baseline trades, because 5m snapshots start later than 15m ones.
+   - It needs at least 15 trades in each half.
+   - Failures become `rejected` and get a lesson.
+4. **Forward test.** A passed proposal becomes a challenger in the shadow book from that moment.
+   - The challengers of `config/setups.yaml` are tracked the same way (source `setups.yaml`). Their window starts at the demo's forward start, or when they first ran if that is later.
+   - Every hour the agent compares each challenger with the baseline. Both must have `learning.min_trades` closed trades entered since the window start, on the demo's coins.
+   - The challenger needs an expectancy at least `min_edge_r` higher, a profit factor not lower, and a max drawdown at most `max_drawdown_worse` worse.
+5. **Re-confirmation.** A first win starts a new window, and the challenger must win again on `reconfirm_trades` fresh trades.
+6. **Promotion.** With `learning.auto_promote`, the confirmed winner becomes the demo baseline. You can also promote by hand with the Promote button on the Learning page (or `experiment promote`).
+   - A winner that has not won twice can still be promoted by hand. The dialog warns first, and the promotion is recorded as early.
+   - The change is written into `config/setups.yaml` by `learning/setups_file.py`:
+     - only the changed rule lines are edited, so comments stay
+     - the challenger's line is removed
+     - a version line is added to the header
+     - a backup goes to `data/backups`
+
+     If the file has an unusual layout and the result does not load back as intended, nothing is written.
+   - A new `baseline_history` version is added (v3.2, ...).
+   - The paper account follows the new baseline from the next cycle, and all other comparisons restart against it.
+   - The go-live gate counts trades by their rules, not by the variant's name. The forward trades the winner made as a challenger therefore count for the new baseline, and the gate does not restart from zero.
+   - Live trading still needs the user's approval.
+7. **Lessons.** Every decision writes a lesson to the experiment and to `research/lessons.md`. `research/results.tsv` lists every experiment and is rebuilt with each pack.
+8. **The agent** reloads the rules every cycle, so edits to `setups.yaml`, new experiments and promotions apply without a restart. Every hour it also:
+   - judges the experiments
+   - starts the history screen for waiting proposals in the background
+   - writes the research pack once a day, after `research.daily_time_utc`
+   - with `research.enabled`, starts `claude -p "/research"` with a fixed list of allowed tools (`learning/runner.py`). If the claude CLI is not installed, it logs a warning instead.
+
+### Files and commands
+
+| What | Where |
+|---|---|
+| Research instructions (human-edited) | `research/program.md` |
+| `/research` command | `.claude/commands/research.md` |
+| Proposal format | `research/proposal.schema.json` |
+| Research pack | `research/packs/<day>.md` and `.json`, plus `latest.*` (not in git) |
+| Lessons, results, run notes, proposals | `research/lessons.md`, `research/results.tsv`, `research/notes/`, `research/proposals/` |
+| Judge settings | `learning` in `config/settings.yaml`, editable under Settings → Research |
+| Dashboard | Learning page: experiments table with Promote and Stop buttons, timeline, latest research pack, lessons |
+
+```powershell
+.venv\Scripts\python -m tradeagent research-pack
+.venv\Scripts\python -m tradeagent experiment list --all
+.venv\Scripts\python -m tradeagent experiment propose research\proposals\2026-10-05.json
+.venv\Scripts\python -m tradeagent experiment try filters.min_stop_pct 1.25   # replay only, not recorded
+.venv\Scripts\python -m tradeagent experiment screen      # proposals waiting for their replay
+.venv\Scripts\python -m tradeagent experiment evaluate    # judge now (the agent does it hourly)
+.venv\Scripts\python -m tradeagent experiment stop 7 --reason "..."
+.venv\Scripts\python -m tradeagent experiment lesson 7 "..."
+.venv\Scripts\python -m tradeagent experiment promote 7 --yes   # writes setups.yaml; --early before it won twice
+```
+
+### First cycle (2026-10-04)
+
+- **Five manual challengers retired** before the forward test, because they were worse than the baseline on the history: `min_stop_1pct`, `min_stop_2pct`, `confirm_0`, `stop_1h_swing` and `trigger_strong`.
+  - Eight remain in the forward test, with `video_original` as the reference.
+- **Five proposals from the first research run** were screened on the history and all rejected:
+  - break-even at +1R
+  - a 1.25R target
+  - a 2R target
+  - entries 04–20 UTC only
+  - a 15-candle swing stop
+
+  See `research/notes/2026-10-04.md`.
+- **The stop floor failed** in an earlier test: −0.036R a trade over 954 trades. The option (`stop.min_pct`) stays available for other baselines.
+
+### Not built yet
+
+- **Strategy Tester flow** for indicator settings (build task 7). It needs Node.js for the TradingView MCP server and a Pine wrapper. Deferred; indicator-setting ideas go into the research notes.
+- **The scheduled run needs the claude CLI on the PATH** of the computer that runs the agent, logged in with the Pro plan. Until then, run `/research` by hand in Claude Code.

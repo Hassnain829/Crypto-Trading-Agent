@@ -275,4 +275,29 @@ INSERT OR IGNORE INTO baseline_history VALUES
      0.237, 209, 154.9, 'research round 2, 2026-10-04 (docs/research/2026-10-04-v3-coins.md): positive in all four quarters; $150 with every signal +155%, max drawdown 20%; about 3.6 trades a day');
 """,
     ),
+    (
+        12,
+        "learning loop",
+        """
+CREATE TABLE experiments (                 -- one changed idea tested against the baseline (Phase 5)
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL UNIQUE,             -- the challenger's variant name
+    source TEXT NOT NULL,                  -- claude | user | setups.yaml
+    baseline_id TEXT NOT NULL,             -- the baseline it is compared with
+    change_json TEXT NOT NULL,             -- the override merged into the baseline rules, e.g. {"stop": {"min_pct": 1.5}}
+    hypothesis TEXT NOT NULL,
+    expected TEXT,
+    confidence REAL,
+    status TEXT NOT NULL,                  -- screening | running | reconfirming | promoted | lost | rejected | stopped
+    variant_id TEXT,
+    screen_json TEXT,                      -- the history replay result (both halves)
+    started_at INTEGER,                    -- start of the forward comparison window
+    reconfirm_from INTEGER,                -- start of the fresh-trade window after a first win
+    decided_at INTEGER,
+    result_json TEXT,                      -- metrics at the decision
+    lesson TEXT,
+    created_at INTEGER NOT NULL
+);
+""",
+    ),
 ]

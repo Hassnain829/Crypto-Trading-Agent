@@ -29,6 +29,10 @@ from tradeagent.tv.watchdog import Watchdog
 
 log = logging.getLogger("tradeagent.reader")
 
+# Candles of the last REPAIR_BARS that have no good snapshot (a failed read, a busy computer, a restart) are read
+# again from the chart's loaded history in the next good read, before the shadow engine moves past them.
+REPAIR_BARS = 12
+
 INPUTS_WAIT_S = 120  # after a TradingView start the indicators of a tab can take a while to load
 LATE_WAKE_S = 600  # a candle close noticed this late means the computer slept; it is skipped
 
@@ -167,13 +171,19 @@ class SignalReader:
         if page is None:
             return [failed(tf, "chart tab is not open") for tf in timeframes]
         try:
+            # The HTF tab switches coins every read; a coin's own tab is switched back if someone changed its symbol.
             prep = await self.cdp.evaluate(
-                page,
-                js.prepare(tv_symbol if switch_symbol else None, self.settings.tradingview.min_bars, self._timeout_ms),
-                await_promise=True,
+                page, js.prepare(tv_symbol, self.settings.tradingview.min_bars, self._timeout_ms), await_promise=True,
             )
         except CDPError as exc:
             return [failed(tf, f"could not prepare the chart: {exc}") for tf in timeframes]
+        if not switch_symbol and prep.get("switched"):
+            shown = sorted({s for s in prep.get("before") or [] if s != tv_symbol})
+            name = next((n for n, i in self.settings.tradingview.layouts.items() if i == page.layout_id), page.layout_id)
+            message = (f"{name} showed {', '.join(shown)} instead of {tv_symbol};"
+                       " switched it back. Use your own layout (not an AGENT tab) to look at other charts.")
+            log.warning(message)
+            log_event(self.conn, "WARNING", "reader", message)
         index_by_interval = {chart["interval"]: chart["index"] for chart in prep["charts"]}
 
         snaps = []
@@ -194,7 +204,34 @@ class SignalReader:
             if not prep.get("ok"):
                 snap.problems.append("chart was not fully prepared (history or indicators still loading)")
             snaps.append(snap)
+            if prep.get("ok"):
+                await self._repair(page, coin, tf, index, spec, tv_symbol, bar_times[tf])
         return snaps
+
+    async def _repair(self, page: ChartPage, coin: str, tf: str, index: int, spec: dict[str, Any], tv_symbol: str,
+                      bar_time_s: int) -> None:
+        """Read missed closed candles of the last REPAIR_BARS again (stored as source 'backfill')."""
+        step = TF_SECONDS[tf]
+        first = bar_time_s - REPAIR_BARS * step
+        have = {r[0] for r in self.conn.execute(
+            "SELECT bar_time FROM snapshots WHERE symbol = ? AND timeframe = ? AND bar_time >= ? AND bar_time < ?"
+            " AND problems_json IS NULL", (coin, tf, first * 1000, bar_time_s * 1000))}
+        repaired = []
+        for t in range(first, bar_time_s, step):
+            if t * 1000 in have:
+                continue
+            try:
+                raw = await self.cdp.evaluate(page, js.read_closed(spec, index, t))
+            except CDPError:
+                return
+            snap = build_snapshot(raw, symbol=coin, timeframe=tf, tradingview_symbol=tv_symbol, bar_time_s=t,
+                                  signal_version=self.signal_version, read_at_ms=self.clock.now_ms(), spec=spec)
+            if snap.ok:
+                snap.source = "backfill"
+                store_snapshot(self.conn, snap)
+                repaired.append(time.strftime("%H:%M", time.gmtime(t)))
+        if repaired:
+            log.info("%s %s: read %d missed candle(s) again from the chart: %s", coin, tf, len(repaired), ", ".join(repaired))
 
     async def _run_hourly(self, hourly: Callable[[], Awaitable[None]] | None) -> None:
         for task in (self._hourly, hourly):

@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Research run output",
+  "type": "object",
+  "required": [
+    "summary",
+    "proposals"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "what the pack showed and why these proposals"
+    },
+    "proposals": {
+      "type": "array",
+      "maxItems": 5,
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "change",
+          "hypothesis",
+          "expected",
+          "confidence"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]{2,40}$"
+          },
+          "change": {
+            "type": "object",
+            "required": [
+              "path",
+              "value"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "type": "string",
+                "enum": [
+                  "timeframes",
+                  "trigger.long",
+                  "trigger.short",
+                  "confirmation.window",
+                  "confirmation.klinger",
+                  "confirmation.candle_direction",
+                  "filters.vwap",
+                  "filters.macd_trend",
+                  "filters.htf",
+                  "filters.min_stop_pct",
+                  "filters.zl_own",
+                  "filters.trend_15m",
+                  "filters.session_utc",
+                  "entry.mode",
+                  "entry.limit_minutes",
+                  "entry.offset_r",
+                  "stop.lookback",
+                  "stop.anchor",
+                  "stop.multiplier",
+                  "stop.min_pct",
+                  "exit.mode",
+                  "exit.take_profit_r",
+                  "exit.partial_r",
+                  "exit.breakeven_r",
+                  "exit.opposite_signal",
+                  "exit.max_candles"
+                ]
+              },
+              "value": {}
+            }
+          },
+          "hypothesis": {
+            "type": "string",
+            "minLength": 20
+          },
+          "expected": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          }
+        }
+      }
+    },
+    "lessons": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "experiment_id",
+          "text"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "experiment_id": {
+            "type": "integer"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 10
+          }
+        }
+      }
+    }
+  }
+}

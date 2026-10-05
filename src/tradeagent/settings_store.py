@@ -80,6 +80,18 @@ FIELDS: tuple[EditableField, ...] = (
           "charts. After a change the agent downloads this exchange's market data again (a few minutes); start a new "
           "forward test afterwards (paper-reset --from-now).",
           live=False, choices=tuple(VENUES), labels=tuple((v.id, v.label) for v in VENUES.values())),
+    EditableField("learning.min_trades", "Trades to decide", "int",
+          "Closed trades the challenger and the baseline both need in the same period before a verdict."),
+    EditableField("learning.min_edge_r", "Edge to win (R per trade)", "float",
+          "The challenger's expectancy must beat the baseline's by at least this much.", step=0.01),
+    EditableField("learning.max_drawdown_worse", "Drawdown may be worse by", "percent"),
+    EditableField("learning.reconfirm_trades", "Fresh trades to confirm", "int",
+          "After a first win the challenger must stay ahead on this many new trades."),
+    EditableField("learning.max_challengers", "Max challengers", "int"),
+    EditableField("learning.auto_promote", "Promote winners to the demo", "bool",
+          "A confirmed winner becomes the demo baseline by itself. Live trading always needs your approval."),
+    EditableField("learning.screen_on_history", "Screen proposals on history", "bool",
+          "A proposal must first beat the baseline in both halves of the stored history."),
     EditableField("research.enabled", "Daily research run", "bool", "Claude studies the journal once a day (Phase 5)."),
     EditableField("research.daily_time_utc", "Research time (UTC)", "time"),
 )
@@ -90,7 +102,7 @@ GROUPS = {
     "Costs (apply when the agent restarts)": [f for f in FIELDS if f.path.startswith("costs.")],
     "Go-live gate": [f for f in FIELDS if f.path.startswith("goal.")],
     "TradingView": [f for f in FIELDS if f.path.startswith("tradingview.")],
-    "Research": [f for f in FIELDS if f.path.startswith("research.")],
+    "Research": [f for f in FIELDS if f.path.startswith("research.") or f.path.startswith("learning.")],
     "Trading exchange (applies when the agent restarts)": [f for f in FIELDS if f.path.startswith("exchange.")],
 }
 

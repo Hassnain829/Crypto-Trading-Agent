@@ -166,6 +166,18 @@ class ResearchConfig(_Section):
     daily_time_utc: str = Field(default="06:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
+class LearningConfig(_Section):
+    """How experiments are judged (Phase 5). A challenger wins only if every rule holds."""
+
+    min_trades: int = Field(default=100, ge=10)  # closed trades of the challenger and the baseline in the same period
+    min_edge_r: float = Field(default=0.05, ge=0)  # challenger expectancy >= baseline + this
+    max_drawdown_worse: float = Field(default=0.25, ge=0, le=2)  # max drawdown (R) at most this much worse
+    reconfirm_trades: int = Field(default=50, ge=10)  # fresh trades the winner must stay ahead on
+    max_challengers: int = Field(default=15, ge=1, le=40)
+    auto_promote: bool = True  # a confirmed winner becomes the demo baseline by itself (live always needs approval)
+    screen_on_history: bool = True  # proposals must first beat the baseline in both halves of the history
+
+
 class LoggingConfig(_Section):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     file: str = "data/logs/agent.log"
@@ -206,6 +218,7 @@ class Settings(_Section):
         daily_loss_stop=0.10, leverage_cap=10))
     goal: GoalConfig
     research: ResearchConfig = Field(default_factory=ResearchConfig)
+    learning: LearningConfig = Field(default_factory=LearningConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
 

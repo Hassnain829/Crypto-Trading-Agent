@@ -68,6 +68,9 @@ def verify_trade(conn: sqlite3.Connection, settings: Settings, trade: sqlite3.Ro
         (symbol, tf, trade["confirm_time"], lookback),
     ).fetchall()
     swing = min(r["low"] for r in recent) if sign > 0 else max(r["high"] for r in recent)
+    floor = (p["stop"].get("min_pct") or 0) / 100 * trade["entry_ref"]
+    if floor and abs(trade["entry_ref"] - swing) < floor:  # stop floor: the stop (and the target) move out
+        swing = trade["entry_ref"] - sign * floor
     stop = swing
     if p["stop"].get("anchor", "trade") == "1h":  # also beyond the last closed 1h candles
         hourly = conn.execute(

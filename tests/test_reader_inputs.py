@@ -16,6 +16,9 @@ class FakeClock:
     def measure(self) -> int:
         return 0
 
+    def now_ms(self) -> int:
+        return 1_791_000_000_000
+
 
 class InputsCDP:
     """Every AGENT tab is open; read_inputs answers from `charts(layout_id, call)`."""
@@ -149,3 +152,62 @@ def test_connection_problems_are_one_line():
     exc = ccxt.RequestTimeout("binanceusdm GET https://fapi.binance.com/fapi/v1/klines\n  Read timed out")
     assert _is_connection_problem(exc) and not _is_connection_problem(ValueError("bug"))
     assert _short(exc) == "RequestTimeout: binanceusdm GET https://fapi.binance.com/fapi/v1/klines Read timed out"
+
+
+class TabCDP:
+    """One coin tab with a 5m and a 15m chart: prepare and read_closed answer like TradingView."""
+
+    def __init__(self, settings, catalog, symbol, switched=False) -> None:
+        self.pages = [ChartPage(str(i), f"https://www.tradingview.com/chart/{layout_id}/", f"ws://{i}")
+                      for i, layout_id in enumerate(settings.tradingview.layouts.values())]
+        self.symbol, self.switched, self.catalog = symbol, switched, catalog
+        self.read_times: list[int] = []
+
+    async def version(self) -> dict:
+        return {}
+
+    async def chart_pages(self) -> list[ChartPage]:
+        return self.pages
+
+    async def evaluate(self, page: ChartPage, expression: str, *, await_promise: bool = False):
+        if expression.startswith("(async function (targetSymbol"):
+            return {"ok": True, "switched": self.switched, "before": ["BITSTAMP:ETHUSD", self.symbol],
+                    "charts": [{"interval": "5", "index": 0}, {"interval": "15", "index": 1}]}
+        bar_time = int(expression.rsplit(",", 1)[1].strip(" )"))
+        self.read_times.append(bar_time)
+        interval = "5" if '"5"' in expression or ", 0, " in expression else "15"
+        spec = self.catalog.js_spec("scalp")
+        return {"symbol": self.symbol, "interval": interval, "series_status": 3, "is_loading": False,
+                "ohlcv": [1, 2, 0.5, 1.5, 10], "values": {k: {f["name"]: 0 for f in ind["fields"]} for k, ind in spec.items()}}
+
+
+def test_missed_candles_are_read_again_and_a_changed_symbol_is_reported(settings, caplog):
+    import logging
+
+    from tradeagent.tv.reader import REPAIR_BARS
+    from tradeagent.tv.snapshots import failed_snapshot, store_snapshot
+
+    catalog = load_catalog(settings.resolve(settings.tradingview.catalog))
+    xrp = settings.exchange.symbols["XRP"].tradingview
+    cdp = TabCDP(settings, catalog, xrp, switched=True)
+    reader, conn = _reader(settings, cdp, catalog)
+    boundary = 1_791_000_000 - 1_791_000_000 % 900
+    page = next(p for p in cdp.pages if p.layout_id == settings.layout_for("XRP"))
+    # the last hour of 5m candles: all good except two failed reads
+    for i in range(1, REPAIR_BARS + 1):
+        t = boundary - 300 - i * 300
+        snap = failed_snapshot("XRP", "5m", t, 1, 0, "chart was still loading") if i in (2, 3) else None
+        if snap is None:
+            store_snapshot(conn, failed_snapshot("XRP", "5m", t, 1, 0, "x"))
+            conn.execute("UPDATE snapshots SET problems_json = NULL WHERE bar_time = ?", (t * 1000,))
+            conn.commit()
+        else:
+            store_snapshot(conn, snap)
+    with caplog.at_level(logging.INFO, logger="tradeagent.reader"):
+        snaps = asyncio.run(reader._read_tab(page, "XRP", False, ["5m"], {"5m": boundary - 300}))
+    assert [s.ok for s in snaps] == [True]
+    repaired = conn.execute("SELECT bar_time / 1000 FROM snapshots WHERE source = 'backfill' AND problems_json IS NULL"
+                            " ORDER BY bar_time").fetchall()
+    assert [r[0] for r in repaired] == [boundary - 300 - 3 * 300, boundary - 300 - 2 * 300]
+    assert any("showed BITSTAMP:ETHUSD instead of" in r.getMessage() for r in caplog.records)
+    assert conn.execute("SELECT count(*) FROM events WHERE message LIKE '%switched it back%'").fetchone()[0] == 1

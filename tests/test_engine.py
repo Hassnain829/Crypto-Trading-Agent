@@ -325,3 +325,17 @@ def test_trend_15m_filters_5m_signals_against_the_15m_trend(world):
     SetupEngine(settings, [with15], conn).process()
     t = conn.execute("SELECT taken, reason FROM trades").fetchone()
     assert (t["taken"], t["reason"]) == (0, "trend_15m")
+
+
+def test_a_stop_floor_widens_a_tight_swing_instead_of_skipping_it(world):
+    conn, variants, settings = world
+    floor = _variant("floor", {"filters": {"min_stop_pct": 1.5}, "stop": {"min_pct": 1.5}}, role="baseline")
+    skip = _variant("skip", {"filters": {"min_stop_pct": 1.5}})
+    register_variants(conn, [floor, skip])
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)  # the swing stop is ~1.1% below the 100.1 entry
+    SetupEngine(settings, [floor, skip], conn).process()
+    rows = {r["variant_id"].split("-")[0]: r for r in conn.execute("SELECT * FROM trades")}
+    assert (rows["skip"]["taken"], rows["skip"]["reason"]) == (0, "min_stop_pct")
+    f = rows["floor"]
+    assert f["taken"] == 1 and f["stop_initial"] == pytest.approx(100.1 * (1 - 0.015))
+    assert f["target"] == pytest.approx(100.1 + 1.5 * 100.1 * 0.015)

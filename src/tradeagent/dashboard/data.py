@@ -419,6 +419,23 @@ class Store:
             }
         return self.cached("learning", 60, build)
 
+    def experiments(self) -> dict[str, Any]:
+        """The Experiment Manager's records with their numbers, and the newest research pack."""
+        def build():
+            from tradeagent.learning import experiments as ex
+
+            settings = self.settings
+            rows = ex.summary(self.conn, settings, baseline_id=self.baseline_id)
+            pack = self.defaults.root / "research" / "packs" / "latest.md"
+            return {
+                "rows": rows,
+                "counts": {status: sum(1 for r in rows if r["status"] == status) for status in
+                           ("screening", "running", "reconfirming", "promoted", "lost", "rejected", "stopped")},
+                "rules": settings.learning.model_dump(),
+                "pack": {"at": int(pack.stat().st_mtime * 1000), "text": pack.read_text(encoding="utf-8")} if pack.exists() else None,
+            }
+        return self.cached("experiments", 30, build)
+
     def baseline_params(self) -> dict[str, Any] | None:
         row = self.conn.execute("SELECT id, params_json FROM variants WHERE role = 'baseline'").fetchone()
         return {"id": row["id"], "params": json.loads(row["params_json"])} if row else None

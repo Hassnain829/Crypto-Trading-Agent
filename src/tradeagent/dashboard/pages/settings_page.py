@@ -359,8 +359,9 @@ def rules_panel(store: Store) -> None:
 
     path = store.defaults.resolve(store.defaults.shadow.setups)
     catalog = load_catalog(store.defaults.resolve(store.defaults.tradingview.catalog))
-    with card("Strategy rules", "config/setups.yaml: the baseline and its one-change variants. Saved rules apply when the "
-              "agent restarts; changed rules get a new variant id and start collecting trades from zero.", classes="w-full"):
+    with card("Strategy rules", "config/setups.yaml: the baseline and its manual one-change variants (Claude's experiments "
+              "are on the Learning page). Saved rules apply in the next agent cycle; changed rules get a new variant id and "
+              "start collecting trades from zero.", classes="w-full"):
         editor = ui.codemirror(path.read_text(encoding="utf-8"), language="YAML",
                                theme="vscodeDark" if mode() == "dark" else "vscodeLight").classes("w-full h-[520px] min-w-0")
         result = ui.column().classes("w-full gap-1")
@@ -398,7 +399,7 @@ def rules_panel(store: Store) -> None:
             with store.conn:
                 store.conn.execute("INSERT INTO settings_audit (ts, key, old_json, new_json, source) VALUES (?, ?, ?, ?, ?)",
                                    (now_ms(), "setups.yaml", f'"{digest(old)}"', f'"{digest(editor.value)}"', "dashboard"))
-            ui.notify("Saved (a backup is in data/backups). Restart the agent to use the new rules.", type="positive")
+            ui.notify("Saved (a backup is in data/backups). The agent uses the new rules from its next cycle.", type="positive")
 
         with ui.row().classes("w-full justify-end gap-2"):
             ui.button("Revert", icon="undo", on_click=lambda: editor.set_value(path.read_text(encoding="utf-8"))).props("flat")

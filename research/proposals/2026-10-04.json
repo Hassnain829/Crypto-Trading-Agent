@@ -1,0 +1,59 @@
+{
+  "summary": "First research run (2026-10-04). The baseline (v3.1 rules on XRP, SOL and ETH) was tested against five single-rule changes suggested by the pack: break-even, two targets, an hour filter and a wider swing stop. All five were rejected on the history.",
+  "proposals": [
+    {
+      "name": "be_1r",
+      "change": {
+        "path": "exit.breakeven_r",
+        "value": 1.0
+      },
+      "hypothesis": "34 of the baseline's 93 stopped trades first reached +0.5R. Moving the stop to break-even after +1R should turn some full losses into scratches.",
+      "expected": "more R per trade, a few more scratches",
+      "confidence": 0.35
+    },
+    {
+      "name": "tp_125",
+      "change": {
+        "path": "exit.take_profit_r",
+        "value": 1.25
+      },
+      "hypothesis": "Many stopped trades had been in profit (34 of 93 reached +0.5R). A closer target should be hit more often.",
+      "expected": "higher win rate, similar R per trade",
+      "confidence": 0.3
+    },
+    {
+      "name": "tp_2",
+      "change": {
+        "path": "exit.take_profit_r",
+        "value": 2.0
+      },
+      "hypothesis": "Winners at the 1.5R target average +1.48R; if the moves often run further, a 2R target earns more per winner.",
+      "expected": "lower win rate, more R per trade",
+      "confidence": 0.2
+    },
+    {
+      "name": "session_04_20",
+      "change": {
+        "path": "filters.session_utc",
+        "value": [
+          4,
+          20
+        ]
+      },
+      "hypothesis": "Entries between 20:00 and 04:00 UTC are the weakest hours: +0.116R and +0.178R a trade, against +0.22R to +0.39R in the other hours.",
+      "expected": "+0.03R a trade, about 25% fewer trades",
+      "confidence": 0.35
+    },
+    {
+      "name": "lookback_15",
+      "change": {
+        "path": "stop.lookback",
+        "value": 15
+      },
+      "hypothesis": "A swing stop over 15 candles sits further from the noise and should be stopped out less often.",
+      "expected": "fewer stop-outs",
+      "confidence": 0.2
+    }
+  ],
+  "lessons": []
+}

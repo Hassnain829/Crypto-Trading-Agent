@@ -68,6 +68,9 @@ class StopParams(_Strict):
     lookback: int = Field(ge=1, le=100)
     anchor: Literal["trade", "1h"] = "trade"  # swing of the trading chart, or also of the last 1h candles
     multiplier: float = Field(default=1.0, ge=0.5, le=5)  # stop distance times this
+    # A swing stop closer than this % of the entry is moved out to it (instead of the setup being skipped by
+    # filters.min_stop_pct); the target follows the wider stop. None = off.
+    min_pct: float | None = Field(default=None, ge=0.1, le=5)
 
 
 class ExitParams(_Strict):
@@ -104,6 +107,7 @@ class SetupParams(_Strict):
 # the hash, so adding an option never renames the existing variants (which would split their history).
 ADDED_LATER: dict[tuple[str, str], Any] = {
     ("entry", "limit_minutes"): 1, ("entry", "offset_r"): 0.0, ("filters", "trend_15m"): False,
+    ("stop", "min_pct"): None,
 }
 
 

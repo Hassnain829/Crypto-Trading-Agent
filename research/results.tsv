@@ -1,0 +1,19 @@
+id	created	name	source	change	status	decided	challenger_trades	challenger_r	baseline_trades	baseline_r	lesson
+1	2026-10-04	video_original	setups.yaml	{"entry":{"mode":"market"},"filters":{"min_stop_pct":0.0}}	running						
+2	2026-10-04	market_entry	setups.yaml	{"entry":{"mode":"market"}}	running						
+3	2026-10-04	min_stop_1pct	setups.yaml	{"filters":{"min_stop_pct":1.0}}	stopped	2026-10-04					History on XRP/SOL/ETH: +0.072R a trade over 429 trades against the baseline's +0.237R, worse in both halves (+0.060R and +0.082R against +0.253R and +0.221R). Stops between 1% and 1.5% lose to costs. Retired before the forward test.
+4	2026-10-04	min_stop_2pct	setups.yaml	{"filters":{"min_stop_pct":2.0}}	stopped	2026-10-04					History: +0.142R over 100 trades against +0.237R, worse overall and in the first half (+0.012R against +0.253R). Half the trades and no better: 1.5% stays the minimum. Retired before the forward test.
+5	2026-10-04	session_13_21	setups.yaml	{"filters":{"session_utc":[13,21]}}	running						
+6	2026-10-04	session_07_21	setups.yaml	{"filters":{"session_utc":[7,21]}}	running						
+7	2026-10-04	htf_against_4h	setups.yaml	{"filters":{"htf":"against_4h"}}	running						
+8	2026-10-04	tf_15m	setups.yaml	{"timeframes":["15m"]}	running						
+9	2026-10-04	confirm_0	setups.yaml	{"confirmation":{"window":0}}	stopped	2026-10-04					History: +0.204R over 175 trades against +0.237R, worse in both halves (+0.201R and +0.207R). Letting the confirmation come up to 3 candles after the trigger adds good trades. Retired before the forward test.
+10	2026-10-04	stop_1h_swing	setups.yaml	{"stop":{"anchor":"1h"}}	stopped	2026-10-04					History: +0.183R over 209 trades against +0.237R, worse in both halves (+0.209R and +0.158R). The stop beyond the 1h swing wins more often (56% against 52%) but earns less a trade. Retired before the forward test.
+11	2026-10-04	filter_vwap	setups.yaml	{"filters":{"vwap":true}}	running						
+12	2026-10-04	trigger_strong	setups.yaml	{"trigger":{"long":"strong_buy","short":"strong_sell"}}	stopped	2026-10-04					History: +0.219R over only 83 trades against +0.237R; +0.368R in the first half but +0.041R in the second. Unstable, and too few trades. Retired before the forward test.
+13	2026-10-04	trend15	setups.yaml	{"filters":{"trend_15m":true}}	running						
+14	2026-10-04	be_1r	claude	{"exit":{"breakeven_r":1.0}}	rejected	2026-10-04					Break-even at +1R gives back more than it saves: many winners dip back to the entry after +1R and still reach 1.5R.
+15	2026-10-04	tp_125	claude	{"exit":{"take_profit_r":1.25}}	rejected	2026-10-04					A 1.25R target wins only slightly more often and gives up 0.25R on every winner; 1.5R stays better.
+16	2026-10-04	tp_2	claude	{"exit":{"take_profit_r":2.0}}	rejected	2026-10-04					Most moves do not reach 2R before the stop: 1.5R stays the better target.
+17	2026-10-04	session_04_20	claude	{"filters":{"session_utc":[4,20]}}	rejected	2026-10-04					The late hours are weak only in the second half of the history; cutting them hurts the first half. Hour filters look regime-dependent, so the running session challengers must prove themselves forward.
+18	2026-10-04	lookback_15	claude	{"stop":{"lookback":15}}	rejected	2026-10-04					A 15-candle stop is wider, so many more setups pass the 1.5% minimum, and those extra setups lose. The 10-candle swing and the 1.5% minimum work as a pair.

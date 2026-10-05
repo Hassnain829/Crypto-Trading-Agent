@@ -214,6 +214,9 @@ class SetupEngine:
                 problems.append("stop on the wrong side of the entry")
         # The chart's swing sets the target (reference risk); anchor and multiplier only move the stop.
         reference = abs(entry_ref - stop) if stop is not None and not problems else None
+        if reference is not None and p.stop.min_pct and reference / order_price * 100 < p.stop.min_pct:
+            reference = order_price * p.stop.min_pct / 100  # stop floor: a tight swing gets a wider stop
+            stop = order_price - sign * reference
         if reference is not None and p.stop.anchor == "1h":
             hourly = self.conn.execute(
                 "SELECT high, low FROM candles WHERE symbol = ? AND timeframe = '1h' AND open_time + 3600000 <= ?"

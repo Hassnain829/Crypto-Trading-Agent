@@ -4,6 +4,17 @@ The agent, the dashboard and TradingView Desktop run together on one Windows mac
 
 The VPS must be in a country where the trading venue's API works. **Binance refuses US IP addresses.** The plan (2026-10-04) is Binance with a Pakistani account on a VPS with a Pakistani IP.
 
+**Bought (2026-10-04):** WebAiry "Pakistan VPS 8GB", $24 a month, IP 144.225.54.201. That IP goes into the Binance API key's IP restriction in Phase 6.
+
+**Order of the move:**
+1. Set up the VPS while the PC keeps trading: sections 1, 2 and 4 up to `doctor`.
+2. On the PC, commit and push, then clone on the VPS.
+3. On the PC, stop the agent (Overview > Stop) and close the dashboard.
+4. Copy the journal and Claude's context (section 3).
+5. Start the dashboard on the VPS.
+
+Only one computer may run the agent: both would read the same TradingView account and trade the same demo.
+
 ## 0. Choosing the VPS
 
 | Need | Why |
@@ -45,12 +56,31 @@ Before paying for a long period:
 3. **TradingView Desktop:**
    - Install it from tradingview.com/desktop (MSIX package) and log in.
    - Your plan may allow only one device at a time; logging in on the VPS can log out the PC.
-   - Open the four AGENT layouts (AGENT-XRP, AGENT-LINK, AGENT-SOL, AGENT-HTF). Their ids are in `config/settings.yaml`.
+   - Open the four AGENT layouts by id: AGENT-XRP, AGENT-ETH, AGENT-SOL and AGENT-HTF. The ids are in `config/settings.yaml`; the ETH layout may still be named "AGENT-LINK" in TradingView. The agent also opens them itself.
+   - Do not change the symbol on an AGENT tab. The agent switches a coin tab back to its symbol, but the reads around the change are lost until then. Look at other charts in your own layout.
    - If the Microsoft Store build is not available on the server, update `tradingview.app_id` / `tradingview.launcher` after checking with `Get-AppxPackage *TradingView*`.
+
+4. **Claude Code** (for `/research`, the daily research run and further development):
+   - Node.js LTS from nodejs.org.
+   - VS Code with the Claude Code extension.
+   - The CLI: `npm install -g @anthropic-ai/claude-code`, then run `claude` once in a terminal and log in with your Pro account.
+   - The agent's daily research run (Settings > Research > Daily research run) needs `claude` on the PATH. Restart VS Code and the dashboard after installing Node, so they see the new PATH.
 
 ## 3. Your data and keys
 
-- **Journal:** stop the agent on the PC (Overview > Stop), then copy `data\journal.db` to the same folder on the VPS. This keeps the history, the shadow book and the demo account. Without it the VPS starts empty and downloads market data itself.
+- **Journal:**
+  1. On the PC run `.venv\Scripts\python -m tradeagent export-journal`. It writes a complete copy to `data\transfer\journal.db`. It is safe while the agent runs, and it includes recent data that copying the file by hand can miss (SQLite WAL).
+  2. Do this after stopping the agent on the PC, so that nothing is lost in between.
+  3. On the VPS, put it at `data\journal.db`.
+
+  This keeps the history, the shadow book, the demo account and the experiments. Without it the VPS starts empty and downloads market data itself.
+- **Claude's memory and this chat:**
+  1. On the PC run `powershell -ExecutionPolicy Bypass -File scripts\claude_context.ps1 -Export`. It writes `data\transfer\claude-context.zip`.
+  2. Copy the zip to the same folder on the VPS.
+  3. On the VPS run the script with `-Import`.
+
+  A new Claude chat in that project then reads the memory, so it knows the project's state. The old chat appears in the Claude panel's past conversations, or with `claude --resume`.
+- **Research notes** (`research/`) and **settings** are in git. Settings changed in the dashboard are stored in the journal.
 - **Keys:** paste them again in the VPS dashboard (Settings > Exchanges), or copy `.env` over a secure channel. Never commit `.env`.
 - **Binance key settings:** Enable Reading and Enable Futures; never Withdrawals. Restrict access to the VPS's static IP. The futures account must be opened on Binance first.
 

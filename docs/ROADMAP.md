@@ -14,7 +14,7 @@
 | 6 | [Live trading](phases/phase-6-live-trading.md) | Small live account on the chosen venue (US: Coinbase or Kraken) | Go-live gate + your approval | 2–4 weeks of monitored trading |
 | 7 | [Scale and improve](phases/phase-7-scale-and-improve.md) | More coins, setups and features | 6 | Ongoing |
 
-**Status (2026-10-04):** Phase 0 complete. Phases 1, 2, 3, 4 and 4.5 built; the live venue is being chosen. One `agent` run covers their remaining runtime tests: 48 hours (Phase 1) and 7 days (Phases 2 and 3).
+**Status (2026-10-04):** Phase 0 complete. Phases 1, 2, 3, 4, 4.5 and 5 built. Venue: Binance USDT-M from a Windows VPS. Strategy v3.1 runs on XRP, SOL and ETH; the demo's forward test started on 2026-10-04. One `agent` run covers the remaining runtime tests: 48 hours (Phase 1), 7 days (Phases 2 and 3) and 3 experiment cycles plus 7 days of scheduled research (Phase 5).
 
 Times are estimates. Building is fast; collecting enough shadow trades is the real clock. The earliest realistic live start is about 6–8 weeks after Phase 0, and only if the go-live gate is met.
 

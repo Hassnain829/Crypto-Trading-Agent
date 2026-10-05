@@ -67,6 +67,33 @@ def main(argv: list[str] | None = None) -> int:
     dr.add_argument("--clear", action="store_true", help="remove every drawing the agent made")
     ks = commands.add_parser("kill-switch", help="show or set the kill switch")
     ks.add_argument("mode", nargs="?", choices=["off", "pause", "close_all"])
+    ej = commands.add_parser("export-journal", help="write a complete copy of the journal (safe while the agent runs)")
+    ej.add_argument("path", nargs="?", default="data/transfer/journal.db")
+    commands.add_parser("research-pack", help="write the research pack Claude reads (research/packs/)")
+    exp = commands.add_parser("experiment", help="learning loop: list, propose, try, screen, evaluate, stop, lesson")
+    exp_cmd = exp.add_subparsers(dest="action", required=True)
+    el = exp_cmd.add_parser("list", help="experiments and their numbers")
+    el.add_argument("--all", action="store_true", help="also the decided ones")
+    ep = exp_cmd.add_parser("propose", help="record proposals from a JSON file (or - for stdin) and screen them")
+    ep.add_argument("file")
+    ep.add_argument("--source", default="claude", choices=["claude", "user"])
+    ep.add_argument("--no-screen", action="store_true", help="leave the history screen to the agent")
+    et = exp_cmd.add_parser("try", help="replay the history with one change, without recording it")
+    et.add_argument("path", help="e.g. filters.min_stop_pct")
+    et.add_argument("value", help="a JSON value, e.g. 1.25, true, \"15m\" or [13,21]")
+    es = exp_cmd.add_parser("screen", help="screen the proposals waiting for their history replay")
+    es.add_argument("--id", type=int, action="append")
+    exp_cmd.add_parser("evaluate", help="judge the running experiments now (the agent does this every hour)")
+    ex_stop = exp_cmd.add_parser("stop", help="stop an experiment")
+    ex_stop.add_argument("id", type=int)
+    ex_stop.add_argument("--reason", required=True)
+    ex_lesson = exp_cmd.add_parser("lesson", help="add a lesson to an experiment (and research/lessons.md)")
+    ex_lesson.add_argument("id", type=int)
+    ex_lesson.add_argument("text")
+    ex_promote = exp_cmd.add_parser("promote", help="promote a winner by hand (writes config/setups.yaml)")
+    ex_promote.add_argument("id", type=int)
+    ex_promote.add_argument("--yes", action="store_true")
+    ex_promote.add_argument("--early", action="store_true", help="also before it has won twice (recorded as early)")
 
     args = parser.parse_args(argv)
     if args.command == "dashboard":
@@ -90,6 +117,38 @@ def main(argv: list[str] | None = None) -> int:
         from tradeagent.venue_replay import venue_replay
 
         return venue_replay(args.venue, args.balance or [150.0])
+    if args.command == "export-journal":
+        import sqlite3
+        from pathlib import Path
+
+        from tradeagent.config import load_settings
+
+        settings = load_settings()
+        out = Path(args.path) if Path(args.path).is_absolute() else settings.root / args.path
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.unlink(missing_ok=True)
+        src = sqlite3.connect(f"file:{settings.resolve(settings.journal.path)}?mode=ro", uri=True)
+        dst = sqlite3.connect(out)
+        src.backup(dst)  # includes what is still in the -wal file; consistent even while the agent writes
+        dst.close()
+        src.close()
+        print(f"journal copied to {out} ({out.stat().st_size / 1e6:.0f} MB). On the new computer put it at data\\journal.db.")
+        return 0
+    if args.command in ("research-pack", "experiment"):
+        from tradeagent.learning import commands as learning
+
+        if args.command == "research-pack":
+            return learning.research_pack()
+        return {
+            "list": lambda: learning.experiment_list(args.all),
+            "propose": lambda: learning.experiment_propose(args.file, args.source, not args.no_screen),
+            "try": lambda: learning.experiment_try(args.path, args.value),
+            "screen": lambda: learning.experiment_screen(args.id),
+            "evaluate": learning.experiment_evaluate,
+            "stop": lambda: learning.experiment_stop(args.id, args.reason),
+            "lesson": lambda: learning.experiment_lesson(args.id, args.text),
+            "promote": lambda: learning.experiment_promote(args.id, args.yes, args.early),
+        }[args.action]()
 
     from tradeagent.tv import commands as tv
 

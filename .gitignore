@@ -15,3 +15,6 @@ data/
 
 # Dashboard runtime storage (theme choice)
 .nicegui/
+
+# Research packs are rebuilt every day from the journal
+research/packs/

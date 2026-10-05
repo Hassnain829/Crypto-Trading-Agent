@@ -14,6 +14,9 @@ Verified directly on TradingView Desktop (v3.4.1, Microsoft Store build) on 2026
 - All charts: Candles, autosave on, no Volume indicator.
 - Time zone: the agent sets the AGENT charts to the setting `tradingview.timezone` ("system" = this computer's zone, the default). It only changes the time axis: intraday candles follow the exchange session, so bars, indicator values and the stored times (UTC) stay the same (checked on 2026-10-03: 4h bars stay at 00:00/04:00/08:00 UTC on a UTC+5 chart).
 - The 5th layout slot is free for personal analysis. Do not analyse inside the AGENT layouts; autosave syncs every change.
+- **If an AGENT chart's symbol is changed anyway:**
+  - At every read the agent switches a coin tab back to its symbol and logs a warning. This happened on 2026-10-04, when AGENT-ETH showed `BITSTAMP:ETHUSD` for 40 minutes.
+  - Candles of the last 12 bars that have no good snapshot are read again from the chart's history in the next good read (stored as source `backfill`), so a short outage loses no signals.
 
 ## 2. Indicator templates
 

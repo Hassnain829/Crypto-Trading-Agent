@@ -34,7 +34,7 @@ Research pack ──► Claude Code (Pro) ──► proposals
 |---|---|---|
 | TradingView Desktop | Shows the charts and the 5 indicators; the source of all signals | 0 |
 | CDP client (`tv/cdp.py`) | Lets Python read and control TradingView Desktop directly | 0 (minimal), 1 (full) |
-| Signal Reader (`tv/reader.py`) | Reads every closed candle on schedule, validates it, stores snapshots | 1 ✓ |
+| Signal Reader (`tv/reader.py`) | Reads every closed candle on schedule, validates it, stores snapshots; switches a changed AGENT symbol back and re-reads missed candles of the last 12 bars from the chart's history | 1 ✓ |
 | Watchdog (`tv/watchdog.py`) | Restarts TradingView in debug mode, opens missing AGENT tabs, reloads stuck tabs | 1 ✓ |
 | Market Data (`market/`) | The trading venue's candles, contract sizes and funding rates (no API key needed) | 2 ✓ |
 | Venues (`venues.py`) | Registry of exchanges (Binance, Coinbase US, Kraken Futures, Coinbase International, Bitget, MEXC): ccxt class, who may use it, fees, quiet minutes, server time; `venue-replay` compares the strategy on another venue | 4.5 ✓ |
@@ -44,7 +44,7 @@ Research pack ──► Claude Code (Pro) ──► proposals
 | Paper account + Risk Engine (`account/`) | Live-like ledger with all live rules; `PaperBroker` behind the broker interface | 3 ✓ |
 | Dashboard (`dashboard/`) | Monitoring and control in the browser: six pages, settings with an audit log, exchange keys, live preview | 4 ✓ |
 | Settings store (`settings_store.py`) | Dashboard overrides of settings.yaml, validated and audited; the agent applies them every cycle | 4 ✓ |
-| Research pack + Experiment Manager | Builds reports for Claude; validates and runs experiments | 5 |
+| Learning loop (`learning/`) | Research pack for Claude (`pack.py`); allowed changes (`space.py`); Experiment Manager: validation, history screen, forward judging, re-confirmation, promotion and lessons (`experiments.py`, `screen.py`); background jobs (`runner.py`) | 5 ✓ |
 | TradingView MCP server (optional) | Lets Claude Code look at charts during research sessions (needs Node.js) | 5 |
 | Live Broker | Real orders on the trading venue and reconciliation | 6 |
 
@@ -55,7 +55,7 @@ Research pack ──► Claude Code (Pro) ──► proposals
 | TradingView Desktop | GUI app in a logged-in Windows session, started with the debug port (`scripts/launch_tradingview_debug.ps1`) | Watchdog restarts it; on the VPS, Windows auto-logon brings it back after a reboot |
 | `agent` (Python) | Windows service or startup task | Auto-restart on crash |
 | `dashboard` (Python) | Windows service or startup task, `127.0.0.1:8080` | Auto-restart on crash |
-| Research (optional) | Task Scheduler runs Claude Code once a day | Next scheduled run |
+| Research (optional) | The agent writes the research pack daily; with `research.enabled` it also starts `claude -p "/research"` (needs the claude CLI and a Pro login) | Next day's run |
 
 TradingView Desktop is a GUI app, so it needs a logged-in user session. On the VPS, enable Windows auto-logon and **disconnect** RDP instead of signing out.
 
@@ -86,8 +86,8 @@ Tables are added by migrations when each phase designs them.
 | `engine_state` | Where the setup engine stopped, per coin and timeframe (restart-safe catch-up) | 2 ✓ |
 | `account_state`, `account_trades` | Paper account (live in Phase 6): balance, daily stop, every signal opened or rejected and why, USDT PnL | 3 ✓ |
 | `agent_status`, `baseline_history` | The agent's heartbeat for the dashboard; every strategy version the paper account followed | 4 ✓ |
-| `experiments` | Hypothesis, variable, old and new value, results, decision, lesson | 5 |
-| `lessons` | Research memory | 5 |
+| `experiments` | One rule change: source (claude, user, setups.yaml), change, hypothesis, status (screening → running → reconfirming → promoted, or lost / rejected / stopped), comparison windows, history screen and verdict, lesson | 5 ✓ |
+| lessons | Research memory: `experiments.lesson` plus `research/lessons.md` (and `research/results.tsv`, rebuilt with every pack) | 5 ✓ |
 
 ## 6. Tech stack
 

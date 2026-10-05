@@ -75,6 +75,15 @@ live_account:                    # limits for live trading (Phase 6); edit them 
   leverage_cap: 10
   symbols: [XRP, SOL, ETH]       # coins traded live (v3.1)
 
+learning:                        # how experiments are judged (Phase 5; editable in the dashboard)
+  min_trades: 100                # closed trades of challenger and baseline in the same period
+  min_edge_r: 0.05               # challenger expectancy must beat the baseline by this much
+  max_drawdown_worse: 0.25       # its max drawdown may be at most 25% worse
+  reconfirm_trades: 50           # the winner must stay ahead on this many fresh trades
+  max_challengers: 15
+  auto_promote: true             # a confirmed winner becomes the demo baseline (live always needs your approval)
+  screen_on_history: true        # proposals first replay the history and must win in both halves
+
 research:                        # daily Claude research run (Phase 5)
   enabled: false
   daily_time_utc: "06:00"

@@ -2,10 +2,9 @@
 
 A self-improving crypto scalping agent. It reads signals from TradingView indicators, practices on shadow (paper) trades, learns from the results one change at a time, and later trades live on Binance with small capital.
 
-> **Status (2026-10-03):** Phase 0 complete. Phases 1–3 are built: the TradingView signal reader, the shadow engine and the paper account.
-> A strategy review replaced the video's rules (−0.16R per trade over ~100 days) with baseline v2: stops of at least 1.5% and limit-order entries, +0.12R per trade on the same history ([review](docs/research/2026-10-03-strategy-review.md)).
-> Phase 4 is built: a web dashboard at http://127.0.0.1:8080 (`python -m tradeagent dashboard`).
-> Next: the forward run with `agent` (7+ days); the paper account started fresh at $150.
+> **Status (2026-10-04):** Phase 0 complete. Phases 1–5 are built: the TradingView signal reader, the shadow engine, the paper account, the dashboard (http://127.0.0.1:8080), the exchange adapter and the learning loop.
+> Strategy v3.1: the v2 rules (stops of at least 1.5%, limit-order entries) on XRP, SOL and ETH, +0.24R per trade on ~100 days of history ([research](docs/research/2026-10-04-v3-coins.md)).
+> The demo account's forward test started on 2026-10-04 at $150. Claude's experiments are judged automatically (Learning page).
 
 ## Quick start (Windows, PowerShell)
 
@@ -45,6 +44,7 @@ Other commands:
 - Reader: `reader`, `snapshot`, `tv-status`, `show`, `verify-candles`, `coverage`, `repaint-audit`. See [Phase 1](docs/phases/phase-1-tradingview-reader.md#commands).
 - Shadow engine: `market-sync`, `backfill-snapshots --bars 10000`, `shadow-run`, `shadow-report --halves`, `trades`, `verify-trades`, `shadow-reset`. See [Phase 2](docs/phases/phase-2-shadow-engine.md#commands).
 - Paper account: `paper-report`, `kill-switch`, `paper-reset`. See [Phase 3](docs/phases/phase-3-paper-account-and-risk.md#commands).
+- Learning loop: `research-pack`, `experiment list | propose | try | screen | evaluate | stop | lesson | promote`, and `/research` in Claude Code. See [Phase 5](docs/phases/phase-5-learning-loop.md#as-built-2026-10-04).
 
 ## How it works
 
@@ -52,8 +52,8 @@ Other commands:
 2. The agent reads every **closed** candle over the Chrome DevTools Protocol (CDP).
 3. Python turns those readings into setups and simulates shadow trades with real Binance prices, fees included.
 4. A paper account follows the baseline's trades under the live rules ($150, 2% risk, max 2 positions, daily loss stop).
-5. Claude (Pro plan) reviews the journal, forms a hypothesis, and proposes one change at a time.
-6. Changes that hold up on fresh data become the new baseline.
+5. Claude (Pro plan) reads a daily research pack and proposes one rule change at a time.
+6. A proposal must beat the baseline on the history, then on forward trades, then again on fresh trades; only then does it become the demo's new baseline.
 7. Live trading starts only after the go-live gate is met **and** you approve it.
 
 ## Key facts

@@ -15,10 +15,13 @@ from tradeagent.account.engine import AccountEngine
 from tradeagent.config import Settings
 from tradeagent.journal import log_event
 from tradeagent.journal.db import now_ms, write_status
+from tradeagent.learning import experiments as learning
+from tradeagent.learning import runner
+from tradeagent.learning.pack import write_pack, written_today
 from tradeagent.market.candles import ensure_venue, sync_market_info
 from tradeagent.market.sync import sync_all
 from tradeagent.settings_store import apply_overrides
-from tradeagent.setups.config import load_variants, register_variants
+from tradeagent.setups.config import register_variants
 from tradeagent.setups.engine import SetupEngine
 from tradeagent.sim.tracker import Tracker
 from tradeagent.supervisor import stop_requested_at
@@ -39,9 +42,15 @@ class Agent:
         self.conn = conn
         self._apply_dashboard_settings()
         self.reader = SignalReader(settings, catalog, conn)
-        self.variants = load_variants(settings.resolve(settings.shadow.setups), catalog)
+        self.catalog = catalog
+        # The baseline (with promoted changes), setups.yaml's challengers and the running experiments.
+        self.variants = learning.active_variants(settings, conn, catalog)
         register_variants(conn, self.variants)
+        learning.sync_manual(conn, settings, self.variants)
         self.engine = SetupEngine(settings, self.variants, conn)
+        self._rules_problem: str | None = None
+        self._screen: Any = None  # the background history screen, while it runs
+        self._research: Any = None  # the daily Claude research run, while it runs
         self.tracker = Tracker(settings, conn)
         self.account = AccountEngine(settings, conn)
         self.drawer = TradeDrawer(settings, conn, self.reader.cdp, self.reader.watchdog.pages)
@@ -61,9 +70,50 @@ class Agent:
         for problem in apply_overrides(self.settings, self.conn):
             log.warning("dashboard setting ignored: %s", problem)
 
+    def reload_variants(self) -> None:
+        """Edits of setups.yaml, new experiments and promotions take effect without a restart."""
+        try:
+            variants = learning.active_variants(self.settings, self.conn, self.catalog)
+        except Exception as exc:  # a broken setups.yaml must not stop trading: keep the current rules
+            if str(exc) != self._rules_problem:
+                self._rules_problem = str(exc)
+                log_event(self.conn, "ERROR", "learning", f"setup rules not reloaded, the current ones stay: {exc}")
+            return
+        self._rules_problem = None
+        if [v.id for v in variants] != [v.id for v in self.variants]:
+            register_variants(self.conn, variants)
+            self.variants = variants
+            self.engine = SetupEngine(self.settings, variants, self.conn)
+            log_event(self.conn, "INFO", "learning",
+                      f"setup rules reloaded: baseline {variants[0].id}, {len(variants) - 1} challengers")
+        for action in learning.sync_manual(self.conn, self.settings, variants):
+            log_event(self.conn, "INFO", "learning", action)
+
+    def learning_hourly(self) -> None:
+        """Judge the experiments, screen waiting proposals, and write the daily research pack."""
+        for action in learning.evaluate(self.conn, self.settings, self.variants):
+            log_event(self.conn, "INFO", "learning", action)
+        self.reload_variants()  # a promotion becomes the baseline right away
+        waiting = self.conn.execute("SELECT count(*) FROM experiments WHERE status = 'screening'").fetchone()[0]
+        if waiting and (self._screen is None or self._screen.poll() is not None):
+            self._screen = runner.spawn_screen(self.settings)
+            log.info("history screen started for %d proposal(s)", waiting)
+        research = self.settings.research
+        if time.strftime("%H:%M", time.gmtime()) >= research.daily_time_utc and not written_today(self.settings):
+            path = write_pack(self.settings, self.conn, self.variants)
+            log_event(self.conn, "INFO", "learning", f"research pack written: {path.name}")
+            if research.enabled and (self._research is None or self._research.poll() is not None):
+                self._research = runner.spawn_research(self.settings)
+                if self._research is None:
+                    log_event(self.conn, "WARNING", "learning", "daily research is on, but the claude command is not"
+                              " installed on this computer: run /research in Claude Code by hand")
+                else:
+                    log_event(self.conn, "INFO", "learning", "daily Claude research started (data/logs/research.log)")
+
     def shadow_step(self) -> Counter[str]:
         """Sync Binance candles, turn new snapshots into trades, and move open trades forward. Blocking."""
         self._apply_dashboard_settings()
+        self.reload_variants()
         counts: Counter[str] = Counter()
         synced = sync_all(self.settings, self.conn, self.client, self.reader.clock.now_ms(),
                           backfill_pages=BACKFILL_PAGES)
@@ -105,6 +155,11 @@ class Agent:
         })
 
     async def _hourly(self) -> None:
+        try:  # the learning loop needs no network; its failure must not stop the market data
+            self.learning_hourly()
+        except Exception as exc:
+            log.exception("learning step failed")
+            log_event(self.conn, "ERROR", "learning", f"learning step failed: {exc}")
         ensure_venue(self.conn, self.settings.venue)
         sync_market_info(self.conn, self.client, self.settings.markets())
 

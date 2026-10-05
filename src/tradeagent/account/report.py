@@ -48,11 +48,17 @@ def consistency_issues(conn: sqlite3.Connection) -> tuple[int, list[str]]:
 
 def forward_sample(conn: sqlite3.Connection, since: int | None, symbols: list[str] | None = None) -> list[float]:
     """Net R of the current baseline's closed shadow trades (every signal it took) since `since`, on the coins
-    the account trades (`symbols`; None = every coin)."""
+    the account trades (`symbols`; None = every coin).
+
+    Trades count by the rules, not the name: after a promotion, the forward trades the winner made as a challenger
+    (identical rules) count for the new baseline, so the gate does not start from zero. One trade per signal."""
     only = f" AND t.symbol IN ({', '.join('?' * len(symbols))})" if symbols else ""
     return [r[0] for r in conn.execute(
-        "SELECT t.r_net FROM trades t JOIN variants v ON v.id = t.variant_id WHERE v.role = 'baseline'"
-        " AND t.book = 'exploration' AND t.taken = 1 AND t.status = 'closed' AND t.entry_time >= ?" + only,
+        "SELECT r_net FROM (SELECT t.r_net, t.exit_time, ROW_NUMBER() OVER (PARTITION BY t.symbol, t.timeframe, t.side,"
+        " t.confirm_time ORDER BY v.role = 'baseline' DESC) AS n FROM trades t JOIN variants v ON v.id = t.variant_id"
+        " WHERE v.params_hash = (SELECT params_hash FROM variants WHERE role = 'baseline')"
+        " AND t.book = 'exploration' AND t.taken = 1 AND t.status = 'closed' AND t.entry_time >= ?" + only + ")"
+        " WHERE n = 1 ORDER BY exit_time",
         (since or 0, *(symbols or [])),
     )]
 
