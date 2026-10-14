@@ -127,4 +127,5 @@ def run(host: str = "127.0.0.1", port: int = 8080, open_browser: bool = True, st
     _store.supervisor = Supervisor(settings, watch=start_agent)
     _store.supervisor.start()
     ui.run(root=root, host=host, port=port, title="Crypt-AI Agent", reload=False, show=open_browser,
-           favicon="🤖", show_welcome_message=True, uvicorn_logging_level="warning")
+           favicon="🤖", show_welcome_message=True, uvicorn_logging_level="warning",
+           reconnect_timeout=20.0)  # a busy VPS can answer late; do not show "Connection lost" after 3 s

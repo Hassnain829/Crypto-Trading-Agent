@@ -233,4 +233,4 @@ def build(store: Store) -> None:
                 ui.label(ago(b["age_s"])).classes("text-sm muted num")
 
     refresh()
-    ui.timer(5.0, refresh)
+    ui.timer(15.0, refresh)  # the agent writes once per 5-minute cycle; faster refreshes only load the VPS

@@ -300,4 +300,16 @@ CREATE TABLE experiments (                 -- one changed idea tested against th
 );
 """,
     ),
+    (
+        13,
+        "dashboard indexes",
+        """
+-- The dashboard's Overview counts today's reads and trades and finds each chart's newest live read every few
+-- seconds; without these indexes each query scanned the whole table (seconds once the journal grew).
+CREATE INDEX IF NOT EXISTS idx_snapshots_source_read ON snapshots (source, read_at);
+CREATE INDEX IF NOT EXISTS idx_snapshots_chart_read ON snapshots (symbol, timeframe, source, read_at);
+CREATE INDEX IF NOT EXISTS idx_trades_entry ON trades (book, entry_time);
+CREATE INDEX IF NOT EXISTS idx_trades_exit ON trades (book, exit_time);
+""",
+    ),
 ]

@@ -137,19 +137,28 @@ class Store:
         self.invalidate()
 
     def health(self) -> dict[str, Any]:
+        return self.cached("health", 15, self._health)
+
+    def _health(self) -> dict[str, Any]:
         now = now_ms()
         charts = []
         for symbol in self.settings.exchange.symbols:
             for tf in self.settings.all_timeframes:
+                # Newest first along idx_snapshots_chart_read, stopping at the first good read (max() with the
+                # problems filter scanned every read of the chart).
                 row = self.conn.execute(
-                    "SELECT max(read_at), max(bar_time) FROM snapshots WHERE symbol = ? AND timeframe = ? AND source = 'live'"
-                    " AND problems_json IS NULL", (symbol, tf)).fetchone()
-                read_at = row[0]
+                    "SELECT read_at FROM snapshots WHERE symbol = ? AND timeframe = ? AND source = 'live'"
+                    " AND problems_json IS NULL ORDER BY read_at DESC LIMIT 1", (symbol, tf)).fetchone()
+                read_at = row[0] if row else None
                 age = (now - read_at) / 1000 if read_at else None
                 limit = tf_ms(tf) / 1000 + 120
                 charts.append({"symbol": symbol, "timeframe": tf, "age_s": age,
                                "status": "idle" if age is None else "good" if age <= limit else "warning"})
-        candle = self.one("SELECT max(open_time) FROM candles WHERE timeframe = '1m'")
+        # Per coin along the primary key (symbol, timeframe, open_time); "WHERE timeframe = '1m'" alone scanned
+        # every candle of every coin (~1 s).
+        newest = [self.one("SELECT max(open_time) FROM candles WHERE symbol = ? AND timeframe = '1m'", (s,))
+                  for s in self.settings.exchange.symbols]
+        candle = max((t for t in newest if t), default=None)
         candle_age = (now - candle - 60_000) / 1000 if candle else None
         resources = self.q("SELECT data_json, ts FROM events WHERE source = 'resources' ORDER BY ts DESC LIMIT 1")
         research_docs = sorted((self.defaults.root / "docs" / "research").glob("*.md"))
@@ -278,13 +287,17 @@ class Store:
         return self.cached("variants", 30, build)
 
     def gate(self) -> dict[str, Any]:
-        return self.cached("gate", 20, lambda: account_report(self.conn, self.settings))
+        # The report replays the demo account (seconds on a large journal); the gate changes slowly.
+        return self.cached("gate", 60, lambda: account_report(self.conn, self.settings))
 
     def preview(self, rules: PaperAccountConfig, period: str) -> dict[str, Any]:
         return live_preview(self.conn, self.settings, rules, since=self.period_start(period))
 
     # ---- activity ----------------------------------------------------------------------------
     def today(self) -> dict[str, Any]:
+        return self.cached("today", 15, self._today)
+
+    def _today(self) -> dict[str, Any]:
         start = day_start(now_ms())
         base = self.baseline_id
         return {
