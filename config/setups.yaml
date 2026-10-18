@@ -7,7 +7,7 @@
 #                    Positive in all four sub-periods of the ~100-day history; must hold on fresh data.
 #   See docs/research/2026-10-03-strategy-review.md.
 #   v3, v3.1 (2026-10-04): the v2 rules on XRP, SOL and ETH (the coins are chosen in settings.yaml).
-# Every variant changes exactly ONE thing from the baseline (video_original is a reference with more).
+# Every variant changes exactly ONE thing from the baseline.
 # All of them run in parallel on the same signals in the exploration book. Changing a variant's rules
 # gives it a new id automatically, and the agent picks up changes to this file in its next cycle.
 #
@@ -51,8 +51,8 @@ baseline:
     max_candles: null        # time stop: close at market after this many chart candles
 
 variants:
-  # Reference: the video's original rules (no minimum stop, market entry).
-  video_original:   {filters: {min_stop_pct: 0.0}, entry: {mode: market}}
+  # The reference video_original (the video's rules: no minimum stop, market entry) was retired on 2026-10-18
+  # after -0.225R a trade over 306 forward trades.
 
   # One change each. Retired 2026-10-04 (worse than the baseline on the history): min_stop_1pct,
   # min_stop_2pct, confirm_0, stop_1h_swing, trigger_strong.

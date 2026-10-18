@@ -55,7 +55,18 @@ indicators:
       bullish_divergence: {plot: plot_22, title: "MACD Bullish Divergence", kind: flag}   # confirmed 5 bars late
       bearish_divergence: {plot: plot_23, title: "MACD Bearish Divergence", kind: flag}
 
+  trendline:  # Dynamic Trendline Breakout [RFX] (closed-source; repaint test passed 2026-10-18, research/notes)
+    study: "Dynamic Trendline Breakout [RFX]"
+    fields:
+      long:  {plot: plot_4, title: "LONG SIGNAL",  kind: flag}   # breakout of the pivot-high trendline
+      short: {plot: plot_5, title: "SHORT SIGNAL", kind: flag}   # breakdown of the pivot-low trendline
+
 # Which indicators each chart template carries.
 templates:
-  scalp: [qtrend, klinger, vwap, zerolag, atp_macd]   # trading timeframes (5m, 15m)
-  trend: [qtrend, zerolag]                            # overview timeframes (1h, 4h)
+  scalp: [qtrend, klinger, vwap, zerolag, atp_macd]     # trading timeframes (5m)
+  scalp15: [qtrend, klinger, vwap, zerolag, trendline]  # 15m: Trendline replaced ATP MACD on 2026-10-18 (quality tier)
+  trend: [qtrend, zerolag]                              # overview timeframes (1h, 4h)
+
+# Templates of specific chart timeframes; the others use scalp (trading) or trend (overview).
+chart_templates:
+  15m: scalp15

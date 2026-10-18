@@ -153,6 +153,13 @@ class Agent:
             "clock_offset_ms": self.reader.clock.offset_ms,  # Binance minus this computer; corrected in every read
             "counts": {k: v for k, v in counts.items() if v},
         })
+        try:  # after the heartbeat: a restart takes about two minutes and must not delay this cycle's records
+            seconds_left = boundary_s + 300 - self.reader.clock.now_s()  # the next read is at the next 5-minute close
+            restarted = await self.reader.watchdog.restart_if_heavy(seconds_left)
+            if restarted:
+                log_event(self.conn, "WARNING", "watchdog", restarted)
+        except Exception as exc:
+            log.warning("TradingView memory restart failed: %s", exc)
 
     async def _hourly(self) -> None:
         try:  # the learning loop needs no network; its failure must not stop the market data

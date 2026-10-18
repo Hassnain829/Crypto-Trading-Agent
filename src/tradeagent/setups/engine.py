@@ -29,6 +29,8 @@ from tradeagent.sim.simulator import Costs, TradeState, open_trade
 log = logging.getLogger("tradeagent.engine")
 
 BOOK = "exploration"
+M15_MS = 900_000
+QUALITY_BARS = 8  # a Trendline breakout in the last 8 closed 15m candles (2 hours) makes a trade quality A
 
 
 def costs_from(settings: Settings) -> Costs:
@@ -187,6 +189,20 @@ class SetupEngine:
             return None
         return zerolag_trend(json.loads(row["values_json"]))
 
+    def _quality(self, symbol: str, side: str, at: int) -> tuple[str, str | None]:
+        """Quality tier of a trade decided at `at`: "A" when the 15m chart showed a same-direction Trendline
+        breakout in the last QUALITY_BARS closed candles (research 2026-10-18: those trades won 66% at +0.59R
+        against +0.23R for the others), else "B"."""
+        field = "long" if side == "long" else "short"
+        for row in self.conn.execute(
+            "SELECT bar_time, values_json FROM snapshots WHERE symbol = ? AND timeframe = '15m' AND problems_json IS NULL"
+            " AND bar_time >= ? AND bar_time + ? <= ? ORDER BY bar_time DESC, signal_version DESC",
+            (symbol, at - QUALITY_BARS * M15_MS, M15_MS, at),
+        ):
+            if ((json.loads(row["values_json"]).get("trendline") or {}).get(field)) == 1:
+                return "A", f"15m trendline {field} breakout at {time.strftime('%H:%M', time.gmtime(row['bar_time'] / 1000))} UTC"
+        return "B", None
+
     def _open_trade(
         self, v: Variant, setup: sqlite3.Row, symbol: str, tf: str, row: sqlite3.Row,
         values: dict[str, Any], entry: sqlite3.Row, counts: Counter[str],
@@ -277,6 +293,7 @@ class SetupEngine:
         mode = p.exit.mode
         if mode == "htf_rule":
             mode = "hybrid" if htf["1h"] == trend and htf["4h"] == trend else "fixed"
+        quality, quality_reason = self._quality(symbol, side, order_time)
         context = {
             "values": values,
             "candle": [row["open"], row["high"], row["low"], row["close"]],
@@ -284,6 +301,8 @@ class SetupEngine:
             "filters_failed": failed,
             "snapshot_id": row["id"],
             "params_hash": v.params_hash,
+            "quality": quality,  # A = confirmed by a 15m Trendline breakout; the account may risk more on it
+            "quality_reason": quality_reason,
         }
         if problems:
             status, taken, reason, state, target = "invalid", 0, "; ".join(problems), {}, None

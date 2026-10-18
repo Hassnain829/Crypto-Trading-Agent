@@ -19,6 +19,7 @@ class Tracker:
         self.conn = conn
         self.costs = Costs(settings.costs.maker_fee, settings.costs.taker_fee, settings.costs.slippage)
         self.max_hold_ms = int(settings.shadow.max_hold_hours * 3_600_000)
+        self.symbols = set(settings.exchange.symbols)  # coins whose candles are still synced
 
     def update(self, book: str = "exploration") -> Counter[str]:
         counts: Counter[str] = Counter()
@@ -27,6 +28,16 @@ class Tracker:
             (book,),
         ).fetchall()
         for trade in open_trades:
+            if trade["symbol"] not in self.symbols:
+                # A coin removed from the settings gets no more candles, so its open trades could never close.
+                # They have no result: mark them invalid (left out of every statistic) instead of inventing one.
+                with self.conn:
+                    self.conn.execute(
+                        "UPDATE trades SET status = 'invalid', reason = ?, updated_at = ? WHERE id = ?",
+                        (f"{trade['symbol']} was removed from the market data before the trade closed", now_ms(),
+                         trade["id"]))
+                counts["invalid_removed_coin"] += 1
+                continue
             state = TradeState.from_json(json.loads(trade["state_json"]))
             last_before = state.last_time
             self._advance(trade, state)

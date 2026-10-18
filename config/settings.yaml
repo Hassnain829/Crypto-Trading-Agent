@@ -37,6 +37,8 @@ tradingview:
   prepare_timeout_s: 30          # max wait for a chart to become ready
   stuck_reload_after_s: 240      # reload a tab whose chart stays in "loading" this long
   draw_trades: true              # draw paper trades (entry, stop, target, result) on the AGENT charts
+  restart_above_mb: 4000         # restart TradingView after a cycle when it uses more memory (it grows over days); null = never
+  restart_min_gap_hours: 6
   timezone: system               # time axis of the AGENT charts and dashboard times: system (this PC's) or e.g. Asia/Karachi
   layouts:                       # saved layout name -> layout id (from the chart URL)
     AGENT-XRP: "K7xX5RYP"
@@ -60,6 +62,7 @@ costs:                           # Binance VIP0 USDT-M; check your own account
 paper_account:                   # demo account: takes every baseline signal (the user, 2026-10-03)
   starting_balance: 150
   risk_per_trade: 0.02           # 2% of the balance
+  risk_tier_a: 0.03              # 3% on quality-A trades (a 15m Trendline breakout confirmed them; research 2026-10-18)
   max_positions: null            # null = no limit; live limits (e.g. 2) are set before going live
   max_positions_per_coin: null   # null = no limit (live: e.g. 1)
   daily_loss_stop: null          # null = off; live: 0.10-0.12 of the day's starting balance
@@ -85,7 +88,7 @@ learning:                        # how experiments are judged (Phase 5; editable
   screen_on_history: true        # proposals first replay the history and must win in both halves
 
 research:                        # daily Claude research run (Phase 5)
-  enabled: false
+  enabled: true                  # the agent runs `claude -p /research` once a day (Pro login on this computer)
   daily_time_utc: "06:00"
 
 goal:                            # go-live gate (proposed; editable later in the dashboard)

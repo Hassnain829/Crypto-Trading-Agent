@@ -49,13 +49,20 @@ def spawn_screen(settings: Settings) -> subprocess.Popen:
 
 
 def claude_command() -> str | None:
-    return shutil.which("claude")
+    """The claude CLI: on the PATH, or where the native installer puts it (a long-running agent may have been
+    started before the installer added that folder to the PATH)."""
+    found = shutil.which("claude")
+    if found:
+        return found
+    native = Path.home() / ".local" / "bin" / ("claude.exe" if os.name == "nt" else "claude")
+    return str(native) if native.exists() else None
 
 
 def spawn_research(settings: Settings) -> subprocess.Popen | None:
-    """The daily research run: Claude Code (Pro login) runs the /research command once. None if not installed."""
+    """The daily research run: Claude Code (Pro login) runs the /research command once. None if not installed.
+    research/program.md limits the work (at most 5 proposals and 2 tries per run)."""
     claude = claude_command()
     if claude is None:
         return None
-    cmd = [claude, "-p", "/research", "--output-format", "json", "--max-turns", "60", "--allowedTools", *RESEARCH_TOOLS]
+    cmd = [claude, "-p", "/research", "--output-format", "json", "--allowedTools", *RESEARCH_TOOLS]
     return spawn(settings, cmd, "research.log")

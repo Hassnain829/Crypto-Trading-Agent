@@ -47,3 +47,15 @@ The late hours are weak only in the second half of the history; cutting them hur
 ## 2026-10-04 · lookback_15 · {"stop":{"lookback":15}}
 (auto) Rejected on history before any forward trade: expectancy +0.076R is not 0.05R above the baseline's +0.237R; profit factor 1.14 below the baseline's 1.50; max drawdown 19.2R vs 11.1R; half 1: +0.044R, below the baseline's +0.253R; half 2: +0.108R, below the baseline's +0.221R
 A 15-candle stop is wider, so many more setups pass the 1.5% minimum, and those extra setups lose. The 10-candle swing and the 1.5% minimum work as a pair.
+
+## 2026-10-18 · video_original · {"entry":{"mode":"market"},"filters":{"min_stop_pct":0.0}}
+Reference only. Forward 4-18 Oct on XRP/SOL/ETH: 306 trades, -0.225R a trade, -68.8R in total, profit factor 0.70, against the baseline's +0.373R on 38 trades. The video's original rules lose money; the minimum stop distance (1.5%) and limit entries carry the edge. Retired.
+
+## 2026-10-18 · research round (no experiment recorded; full numbers in research/notes/2026-10-18.md)
+- Long and short open on the same coin at once: 18 pairs in 42 demo trades; one stop and one target in 10 of 11; net about 0R a pair. No skip/close rule beat "every signal" in all three periods (history halves + forward).
+- Smaller targets for counter-trend trades lose: the win rate rises to 75-82% but each win shrinks more than the losses saved. 1.5R stays best for with-trend and counter-trend trades. The 4h trend flips between periods (+0.41R vs -0.29R): no 4h rule.
+- Signals skipped by the 1.5% minimum stop lose in every stop-width bucket at every target 0.5-1.5R; min stop 1% with a 2.5R target doubles the trades at about 0R.
+- Tested on the history and NOT better in all three periods: no Klinger, no candle direction, window 5 (no effect), hybrid partial exits at 0.75R/1.0R (worse in all three), pullback limit 0.25R/30 min (loses 70% of trades, negative forward), target 1.75R, 1h signals without Klinger, 5m+15m+1h. Do not propose these again against this baseline.
+- Chart research 2026-10-18: continuation entries on a VWAP reclaim inside the Q-Trend trend (same risk rules) decay +0.188R -> +0.047R -> -0.162R (history halves, forward). Do not propose. Entries on the cheap side of VWAP did best (+0.60R, 28 trades): a hint only.
+- Indicators 2026-10-18: SMC Pro [RFX] is not machine-readable (0 plots). LuxAlgo and Liquidity Sweep signals have no robust standalone edge on 1h over 14 months. Trendline breakout (RFX) as a same-direction confirmation within 1-4 h before the agent's trades: about +0.55R vs +0.20R. Pending the repaint test (closed-source, pivot-based).
+- Repaint test 2026-10-18 (bar replay, warmed-up XRP): Trendline, LuxAlgo, Liquidity Sweep and Q-Trend never repaint; signals depend on the loaded history length. Quality sizing (3% when a Trendline breakout confirms within 2 h, else 2%) beat flat risk at the same average risk in both halves (+292% vs +233% over 3.5 months). ADX and UT Bot add nothing.

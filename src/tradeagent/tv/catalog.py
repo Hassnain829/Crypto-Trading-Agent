@@ -28,6 +28,7 @@ class Catalog(_Strict):
     signal_version: int = Field(ge=1)
     indicators: dict[str, IndicatorSpec] = Field(min_length=1)
     templates: dict[str, list[str]] = Field(min_length=1)
+    chart_templates: dict[str, str] = Field(default_factory=dict)  # timeframe -> template, e.g. {"15m": "scalp15"}
 
     @model_validator(mode="after")
     def _templates_use_known_indicators(self) -> Catalog:
@@ -35,6 +36,9 @@ class Catalog(_Strict):
             unknown = [k for k in keys if k not in self.indicators]
             if unknown:
                 raise ValueError(f"template {name!r} uses unknown indicators {unknown}")
+        for tf, name in self.chart_templates.items():
+            if name not in self.templates:
+                raise ValueError(f"chart_templates: {tf} uses the unknown template {name!r}")
         return self
 
     def js_spec(self, template: str) -> dict[str, Any]:

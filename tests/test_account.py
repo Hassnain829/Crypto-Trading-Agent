@@ -350,3 +350,17 @@ def test_the_account_and_the_gate_use_only_the_traded_coins(world):
     assert paper(conn, xrp)["status"] == "closed" and paper(conn, link) is None  # LINK: shadow book only
     report = account_report(conn, settings)
     assert report["strategy_trades"] == 1
+
+
+def test_quality_a_trades_risk_risk_tier_a(settings):
+    from tradeagent.account.rules import risk_for
+
+    rules = settings.paper_account.model_copy(update={"risk_per_trade": 0.02, "risk_tier_a": 0.03})
+    assert (risk_for(rules, "A"), risk_for(rules, "B"), risk_for(rules, None)) == (0.03, 0.02, 0.02)
+    limits = MarketLimits(0.0001, 0.0001, 5.0)
+    a = size_position(150.0, 2.0, 1.95, rules, limits, quality="A")
+    b = size_position(150.0, 2.0, 1.95, rules, limits, quality="B")
+    assert a.risk_usd == pytest.approx(4.5, abs=0.01) and b.risk_usd == pytest.approx(3.0, abs=0.01)
+    assert any("quality A" in n for n in a.notes) and not b.notes
+    off = rules.model_copy(update={"risk_tier_a": None})
+    assert size_position(150.0, 2.0, 1.95, off, limits, quality="A").risk_usd == pytest.approx(3.0, abs=0.01)

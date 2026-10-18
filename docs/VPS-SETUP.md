@@ -75,6 +75,19 @@ Before paying for a long period:
 
 ## 3. Your data and keys
 
+- **One command for everything (since 2026-10-18):**
+  1. On the old computer run `powershell -ExecutionPolicy Bypass -File scripts\backup.ps1`. It writes `C:\CryptAI-Backups\backup-<date>utc.zip` and is safe while the agent runs. The zip holds:
+     - the journal
+     - Claude's memory and chats
+     - `.env`
+     - the config
+     - the research databases
+     - a manifest
+  2. Stop the old agent for good.
+  3. Copy the zip privately, since it holds the keys.
+  4. On the new computer, after cloning the code and installing the venv, run `powershell -ExecutionPolicy Bypass -File scripts\restore.ps1 -Zip <zip>`. It refuses while an agent or dashboard runs, and it moves anything it replaces to `data\transfer\restore-<time>\previous`.
+
+  The steps below do the same by hand.
 - **Journal:**
   1. On the PC run `.venv\Scripts\python -m tradeagent export-journal`. It writes a complete copy to `data\transfer\journal.db`. It is safe while the agent runs, and it includes recent data that copying the file by hand can miss (SQLite WAL).
   2. Do this after stopping the agent on the PC, so that nothing is lost in between.

@@ -137,6 +137,17 @@ def test_tracker_closes_the_trade_at_the_target(world):
     assert state["closed"] is True
 
 
+def test_open_trades_of_a_removed_coin_become_invalid_instead_of_staying_open(world):
+    conn, variants, settings = world
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, variants, conn).process()
+    del settings.exchange.symbols["XRP"]  # XRP removed from the market data: no more candles will come
+    counts = Tracker(settings, conn).update()
+    rows = conn.execute("SELECT status, reason FROM trades WHERE symbol = 'XRP' AND taken = 1").fetchall()
+    assert rows and all(r["status"] == "invalid" and "removed" in r["reason"] for r in rows)
+    assert counts["invalid_removed_coin"] == len(rows)
+
+
 def _with(world, repo_root, custom):
     """The world's variants plus custom ones (overrides on the fixed video rules)."""
     conn, variants, settings = world
@@ -339,3 +350,33 @@ def test_a_stop_floor_widens_a_tight_swing_instead_of_skipping_it(world):
     f = rows["floor"]
     assert f["taken"] == 1 and f["stop_initial"] == pytest.approx(100.1 * (1 - 0.015))
     assert f["target"] == pytest.approx(100.1 + 1.5 * 100.1 * 0.015)
+
+
+def test_a_15m_trendline_breakout_before_the_confirmation_makes_a_trade_quality_a(world):
+    conn, variants, settings = world
+    confirm_close = T0 + 3 * M5  # the confirming 5m candle (i = 2) closes here
+    # a same-direction 15m Trendline breakout that closed 30 minutes earlier
+    store_snapshot(conn, Snapshot("XRP", "15m", confirm_close - 3 * 900_000, 1, confirm_close,
+                                  values={"trendline": {"long": 1, "short": 0}}, ohlcv=[100, 101, 99, 100.5, 1.0]))
+    _snap(conn, 0, _values(buy=1, hist=-5.0))
+    _snap(conn, 1, _values(hist=-1.0))
+    _snap(conn, 2, _values(hist=2.0), close=100.4)
+    SetupEngine(settings, variants, conn).process()
+    ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
+    assert ctx["quality"] == "A" and "trendline long breakout" in ctx["quality_reason"]
+
+
+def test_without_a_recent_breakout_the_trade_is_quality_b(world):
+    conn, variants, settings = world
+    confirm_close = T0 + 3 * M5
+    # an opposite-direction breakout, and a same-direction one that is too old (3 hours)
+    store_snapshot(conn, Snapshot("XRP", "15m", confirm_close - 2 * 900_000, 1, confirm_close,
+                                  values={"trendline": {"long": 0, "short": 1}}, ohlcv=[100, 101, 99, 100.5, 1.0]))
+    store_snapshot(conn, Snapshot("XRP", "15m", confirm_close - 12 * 900_000, 1, confirm_close,
+                                  values={"trendline": {"long": 1, "short": 0}}, ohlcv=[100, 101, 99, 100.5, 1.0]))
+    _snap(conn, 0, _values(buy=1, hist=-5.0))
+    _snap(conn, 1, _values(hist=-1.0))
+    _snap(conn, 2, _values(hist=2.0), close=100.4)
+    SetupEngine(settings, variants, conn).process()
+    ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
+    assert ctx["quality"] == "B" and ctx["quality_reason"] is None

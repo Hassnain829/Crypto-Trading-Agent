@@ -75,6 +75,10 @@ class TradingViewConfig(_Section):
     prepare_timeout_s: float = Field(default=30.0, ge=5, le=300)
     stuck_reload_after_s: float = Field(default=240.0, ge=30)
     draw_trades: bool = True  # draw the paper account's trades on the AGENT charts (synced to all layouts)
+    # TradingView Desktop's memory grows over days (5.6 GB after 4 days on an 8 GB VPS). Above this many MB the
+    # agent restarts it right after a cycle, at most once per restart_min_gap_hours. None = never.
+    restart_above_mb: int | None = Field(default=4000, ge=1500)
+    restart_min_gap_hours: float = Field(default=6.0, ge=1)
     # Time zone of the AGENT charts' time axis and of the dashboard's times: "system" (this computer's) or an
     # IANA name such as "Asia/Karachi". Display only: stored times are UTC and candles do not change.
     timezone: str = "system"
@@ -131,6 +135,8 @@ class PaperAccountConfig(_Section):
 
     starting_balance: float = Field(gt=0)
     risk_per_trade: float = Field(gt=0, le=0.05)
+    # Risk on quality-A trades (confirmed by a 15m Trendline breakout); None = risk_per_trade for every trade.
+    risk_tier_a: float | None = Field(default=None, gt=0, le=0.05)
     max_positions: int | None = Field(default=None, ge=1, le=100)
     max_positions_per_coin: int | None = Field(default=None, ge=1, le=50)
     daily_loss_stop: float | None = Field(default=None, gt=0, le=0.5)

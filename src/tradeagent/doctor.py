@@ -208,12 +208,14 @@ async def _check_tradingview(settings: Settings) -> CheckResult:
 
 
 def check_claude_cli() -> CheckResult:
-    path = shutil.which("claude")
+    from tradeagent.learning.runner import claude_command
+
+    path = claude_command()  # the same lookup the daily research run uses
     if not path:
         return CheckResult(
             "Claude Code CLI",
             Status.WARN,
-            "not on PATH",
+            "not found",
             "Only needed for scheduled research (Phase 5); the VS Code extension covers interactive research.",
         )
     try:

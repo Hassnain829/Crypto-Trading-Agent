@@ -55,7 +55,7 @@ def _full(settings, catalog):
         overview = layout_id == settings.htf_layout
         result = []
         for tf in (settings.timeframes.overview if overview else settings.timeframes.trade):
-            template = "trend" if overview else "scalp"
+            template = catalog.chart_templates.get(tf) or ("trend" if overview else "scalp")
             studies = {ind["study"]: {"in_0": 1} for ind in catalog.js_spec(template).values()}
             result.append({"interval": {"5m": "5", "15m": "15", "1h": "60", "4h": "240"}[tf], "studies": studies})
         return result

@@ -74,6 +74,8 @@ class SignalReader:
         self._timeout_ms = int(tv.prepare_timeout_s * 1000)
 
     def template_for(self, timeframe: str) -> str:
+        if timeframe in self.catalog.chart_templates:
+            return self.catalog.chart_templates[timeframe]
         return "scalp" if timeframe in self.settings.timeframes.trade else "trend"
 
     async def start(self) -> list[str]:

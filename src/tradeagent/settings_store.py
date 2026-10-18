@@ -46,6 +46,8 @@ FIELDS: tuple[EditableField, ...] = (
     EditableField("paper_account.starting_balance", "Starting balance", "money",
           "Used when the demo account is reset (paper-reset).", live=False),
     EditableField("paper_account.risk_per_trade", "Risk per trade", "percent", "Share of the balance risked on each trade."),
+    EditableField("paper_account.risk_tier_a", "Risk on quality-A trades", "optpercent",
+                  "Trades confirmed by a 15m Trendline breakout. Empty = the normal risk for every trade."),
     EditableField("paper_account.leverage_cap", "Leverage cap", "float", "Positions are sized down to fit the margin at this leverage."),
     EditableField("paper_account.max_positions", "Max open positions", "optint", "Empty = no limit."),
     EditableField("paper_account.max_positions_per_coin", "Max positions per coin", "optint", "Empty = no limit."),

@@ -8,6 +8,7 @@ The account never writes to the exploration book: its limits and pauses do not s
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import time
@@ -180,7 +181,7 @@ class AccountEngine:
             only = f" AND symbol IN ({', '.join('?' * len(coins))})" if coins else ""
             candidates = self.conn.execute(
                 f"""
-                SELECT id, variant_id, symbol, timeframe, side, entry_time, entry_ref, stop_initial, venue
+                SELECT id, variant_id, symbol, timeframe, side, entry_time, entry_ref, stop_initial, venue, context_json
                 FROM trades WHERE book = 'exploration' AND variant_id = ? AND taken = 1
                   AND status IN ('open', 'closed') AND (entry_time >= ? OR created_at > ?){only}
                   AND id NOT IN (SELECT trade_id FROM account_trades WHERE account = ?)
@@ -208,8 +209,9 @@ class AccountEngine:
             day_start_balance=state["day_start_balance"], rules=self.rules, kill_switch=kill,
         )
         if reason is None:
+            quality = json.loads(cand["context_json"] or "{}").get("quality")
             sizing = size_position(state["balance"], cand["entry_ref"], cand["stop_initial"], self.rules,
-                                   self._limits(cand["symbol"]), used_margin(open_positions, self.rules))
+                                   self._limits(cand["symbol"]), used_margin(open_positions, self.rules), quality)
             if isinstance(sizing, str):
                 reason = sizing
         if reason is not None:

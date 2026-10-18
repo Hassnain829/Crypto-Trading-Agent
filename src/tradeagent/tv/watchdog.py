@@ -7,6 +7,7 @@ import logging
 import subprocess
 import time
 
+from tradeagent import resources
 from tradeagent.config import Settings
 from tradeagent.tv import js
 from tradeagent.tv.cdp import CDPError, ChartPage, TradingViewCDP
@@ -14,6 +15,16 @@ from tradeagent.tv.cdp import CDPError, ChartPage, TradingViewCDP
 log = logging.getLogger("tradeagent.watchdog")
 
 RESTORE_WAIT_S = 90  # after a start TradingView reopens its last tabs by itself, which takes up to about a minute
+CLOSE_WAIT_S = 45  # a graceful close lets TradingView save its layouts; its debug port answers until it has exited
+RESTART_NEEDS_S = 180  # a memory restart (close, start, tabs restored) takes about two minutes
+
+
+def close_tradingview(force: bool = False) -> None:
+    """Close TradingView's window (it saves its layouts), or end every TradingView process with force=True."""
+    command = ("Get-Process TradingView -ErrorAction SilentlyContinue | Stop-Process -Force" if force else
+               "Get-Process TradingView -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }"
+               " | ForEach-Object { [void]$_.CloseMainWindow() }")
+    subprocess.run(["powershell", "-NoProfile", "-Command", command], capture_output=True, timeout=60)
 
 
 def pages_by_layout(pages: list[ChartPage]) -> dict[str, ChartPage]:
@@ -32,6 +43,7 @@ class Watchdog:
         self.required = list(settings.tradingview.layouts.values())
         self._stuck_since: dict[str, float] = {}
         self._duplicates: set[str] = set()
+        self._last_restart: float | None = None  # monotonic time of the last memory restart
 
     async def pages(self) -> dict[str, ChartPage]:
         return pages_by_layout(await self.cdp.chart_pages())
@@ -147,6 +159,41 @@ class Watchdog:
         for action in actions:
             log.warning("watchdog: %s", action)
         return actions
+
+    async def restart_if_heavy(self, seconds_left: float) -> str | None:
+        """Restart TradingView when it holds more than tradingview.restart_above_mb (its memory grows over days).
+
+        Called right after a cycle; only when at least RESTART_NEEDS_S remain before the next read, and at most once
+        per restart_min_gap_hours. Returns what was done, or None."""
+        tv = self.settings.tradingview
+        if not tv.restart_above_mb:
+            return None
+        mb = resources.tradingview_mb()
+        if mb < tv.restart_above_mb:
+            return None
+        if self._last_restart is not None and time.monotonic() - self._last_restart < tv.restart_min_gap_hours * 3600:
+            return None
+        if seconds_left < RESTART_NEEDS_S:
+            return None  # too close to the next candle close: a later cycle restarts it
+        self._last_restart = time.monotonic()
+        log.warning("TradingView uses %.0f MB (limit %d MB): restarting it to free memory", mb, tv.restart_above_mb)
+        await asyncio.to_thread(close_tradingview)
+        if not await self._port_closed(CLOSE_WAIT_S):
+            # The window is closed (layouts saved) but a process still holds the port: end it, or the launcher
+            # would see the old port and not start TradingView again.
+            await asyncio.to_thread(close_tradingview, True)
+            await self._port_closed(15)
+        result = await asyncio.to_thread(self._launch)
+        await self._wait_for_restored_tabs(RESTORE_WAIT_S)
+        return f"TradingView used {mb:.0f} MB; restarted it ({result})"
+
+    async def _port_closed(self, timeout_s: float) -> bool:
+        deadline = time.monotonic() + timeout_s
+        while time.monotonic() < deadline:
+            if not await self._port_up(attempts=1):
+                return True
+            await asyncio.sleep(1)
+        return False
 
     def _launch(self) -> str:
         tv = self.settings.tradingview

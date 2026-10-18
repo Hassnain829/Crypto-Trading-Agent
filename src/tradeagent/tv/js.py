@@ -77,7 +77,10 @@ _PREPARE = """async function (targetSymbol, minBars, timeoutMs, maxRequests, acc
       var src = model.dataSourceForId(st.id);
       if (!src || src.isLoading() || src.isFailed()) return false;
       var data = src.data();
-      return data.size() === bars.size() && data.valueAt(data.lastIndex())[0] === lastTime;
+      // Rows align with the candle index. Pivot-based studies (Trendline Breakout) also keep rows to the right of
+      // the last candle, so check the row at the last candle's index rather than the study's last row.
+      var row = data.valueAt(bars.lastIndex());
+      return data.size() >= bars.size() && !!row && row[0] === lastTime;
     });
   }
   var requests = charts.map(function () { return 0; });

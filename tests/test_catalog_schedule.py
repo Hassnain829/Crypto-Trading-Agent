@@ -52,3 +52,11 @@ def test_next_boundary_and_closing_timeframes():
     assert closing_at(1790935800, tfs) == ["5m"]  # 10:10
     assert closing_at(1790936100, tfs) == ["5m", "15m"]  # 10:15
     assert closing_at(1790942400, tfs) == ["5m", "15m", "1h", "4h"]  # 12:00
+
+
+def test_the_15m_chart_reads_the_trendline_template(repo_root):
+    catalog = load_catalog(repo_root / "config" / "indicators.yaml")
+    assert catalog.chart_templates == {"15m": "scalp15"}
+    assert set(catalog.js_spec("scalp15")) == {"qtrend", "klinger", "vwap", "zerolag", "trendline"}
+    with pytest.raises(ValidationError, match="unknown template"):
+        Catalog.model_validate({**catalog.model_dump(), "chart_templates": {"15m": "missing"}})

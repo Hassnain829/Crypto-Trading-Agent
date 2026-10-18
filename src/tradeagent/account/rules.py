@@ -40,10 +40,17 @@ def round_down(qty: float, step: float) -> float:
     return round(steps * step, decimals)
 
 
+def risk_for(rules: PaperAccountConfig, quality: str | None) -> float:
+    """Share of the balance a trade risks: risk_tier_a for quality-A trades when set, else risk_per_trade."""
+    return rules.risk_tier_a if quality == "A" and rules.risk_tier_a else rules.risk_per_trade
+
+
 def size_position(
-    balance: float, entry: float, stop: float, rules: PaperAccountConfig, limits: MarketLimits, used_margin: float = 0.0
+    balance: float, entry: float, stop: float, rules: PaperAccountConfig, limits: MarketLimits, used_margin: float = 0.0,
+    quality: str | None = None,
 ) -> Sizing | str:
-    """Quantity for `risk_per_trade` of the balance, then the leverage cap and the free margin, then rounding.
+    """Quantity for the trade's risk share (risk_for) of the balance, then the leverage cap and the free margin,
+    then rounding.
 
     Isolated margin at the leverage cap: each position locks notional / leverage_cap of the balance.
     A string means the trade is rejected.
@@ -52,7 +59,10 @@ def size_position(
     if distance <= 0 or balance <= 0:
         return "invalid stop or empty balance"
     notes = []
-    qty = rules.risk_per_trade * balance / distance
+    risk = risk_for(rules, quality)
+    if risk != rules.risk_per_trade:
+        notes.append(f"quality {quality}: {risk:.1%} risk")
+    qty = risk * balance / distance
     by_leverage = rules.leverage_cap * balance / entry
     if qty > by_leverage:
         qty = by_leverage
