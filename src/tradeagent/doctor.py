@@ -15,7 +15,7 @@ from tradeagent.config import Settings, load_settings
 from tradeagent.journal import LATEST_VERSION, connect, log_event, migrate, schema_version
 from tradeagent.journal.db import now_ms
 from tradeagent.logging_setup import setup_logging
-from tradeagent.tv.cdp import CDPError, TradingViewCDP
+from tradeagent.tv.cdp import VERIFIED_APP_VERSIONS, CDPError, TradingViewCDP, app_version
 
 log = logging.getLogger("tradeagent.doctor")
 
@@ -193,9 +193,10 @@ async def _check_tradingview(settings: Settings) -> CheckResult:
     missing = [name for name, layout_id in tv.layouts.items() if saved_ids.get(name) != layout_id]
     name_by_id = {layout_id: name for name, layout_id in tv.layouts.items()}
     open_tabs = ", ".join(name_by_id.get(p.layout_id, p.layout_id or "?") for p in pages)
+    app = app_version(version)
     detail = (
-        f"{version.get('Browser', '?')}; AGENT layouts {len(tv.layouts) - len(missing)}/{len(tv.layouts)}; "
-        f"open tabs: {open_tabs}"
+        f"TradingView {app or '?'} ({version.get('Browser', '?')}); "
+        f"AGENT layouts {len(tv.layouts) - len(missing)}/{len(tv.layouts)}; open tabs: {open_tabs}"
     )
     if missing:
         return CheckResult(
@@ -204,6 +205,9 @@ async def _check_tradingview(settings: Settings) -> CheckResult:
             f"{detail}; missing or changed: {', '.join(missing)}",
             "Compare docs/TRADINGVIEW-SETUP.md with the layout ids in config/settings.yaml.",
         )
+    if app not in VERIFIED_APP_VERSIONS:
+        return CheckResult("TradingView", Status.WARN, f"{detail}; not a checked version ({', '.join(VERIFIED_APP_VERSIONS)})",
+                           "The reader uses TradingView's internal API. Watch the next reads (coverage, repaint-audit).")
     return CheckResult("TradingView", Status.OK, detail)
 
 
@@ -224,6 +228,18 @@ def check_claude_cli() -> CheckResult:
         return CheckResult("Claude Code CLI", Status.WARN, f"found at {path} but it did not run ({exc})")
     text = (out.stdout or out.stderr).strip()
     return CheckResult("Claude Code CLI", Status.OK, text.splitlines()[0] if text else path)
+
+
+def check_alerts(settings: Settings) -> CheckResult:
+    from tradeagent.alerts import ready
+
+    if not settings.alerts.enabled:
+        return CheckResult("Alerts", Status.WARN, "off (alerts.enabled)", "Turn them on in Settings > Alerts.")
+    if not ready(settings):
+        return CheckResult("Alerts", Status.WARN, "phone alerts are not set up: nobody is told when the agent stops",
+                           "Put NTFY_TOPIC in .env and subscribe to it in the ntfy app (docs/VPS-SETUP.md), then run alert-test.")
+    outside = "with" if settings.secrets.healthcheck_url else "without"
+    return CheckResult("Alerts", Status.OK, f"ntfy topic set, {outside} an outside healthcheck ping")
 
 
 def check_node() -> CheckResult:
@@ -255,7 +271,7 @@ def run_checks(settings: Settings, *, offline: bool = False) -> list[CheckResult
         results.append(CheckResult("Market data", Status.WARN, "skipped (--offline)"))
     else:
         results.append(check_binance(settings))
-    results += [check_tradingview(settings), check_claude_cli(), check_node()]
+    results += [check_tradingview(settings), check_alerts(settings), check_claude_cli(), check_node()]
     return results
 
 

@@ -299,3 +299,19 @@ def test_the_gate_counts_the_winners_forward_trades_after_its_promotion(lab):
     ex.promote(conn, settings, exp_id, by="cli", early=True)
     register_variants(conn, ex.active_variants(settings, conn))  # the agent does this in its next cycle
     assert forward_sample(conn, T0, ["XRP"]) == [1.5, 1.5, -1]  # same rules, so its trades count for the gate
+
+
+def test_the_daily_research_cannot_promote_or_judge():
+    from fnmatch import fnmatchcase
+
+    from tradeagent.learning.runner import RESEARCH_TOOLS
+
+    def allowed(command: str) -> bool:
+        return any(fnmatchcase(command, tool[len("Bash("):-1]) for tool in RESEARCH_TOOLS if tool.startswith("Bash("))
+
+    cli = ".venv/Scripts/python -m tradeagent experiment "
+    for command in ("list", "propose research/proposals/2026-10-19.json", "try stop.lookback 12", "stop 3 --reason x",
+                    'lesson 3 "why"'):
+        assert allowed(cli + command), command
+    for command in ("promote 3 --early --confirm", "evaluate", "screen"):
+        assert not allowed(cli + command), command

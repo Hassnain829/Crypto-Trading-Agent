@@ -48,6 +48,9 @@ FIELDS: tuple[EditableField, ...] = (
     EditableField("paper_account.risk_per_trade", "Risk per trade", "percent", "Share of the balance risked on each trade."),
     EditableField("paper_account.risk_tier_a", "Risk on quality-A trades", "optpercent",
                   "Trades confirmed by a 15m Trendline breakout. Empty = the normal risk for every trade."),
+    EditableField("paper_account.max_open_risk", "Max open risk", "optpercent",
+                  "All open positions together may lose at most this share of the balance at their stops. A trade that "
+                  "would go over it is made smaller, not skipped. Empty = no budget."),
     EditableField("paper_account.leverage_cap", "Leverage cap", "float", "Positions are sized down to fit the margin at this leverage."),
     EditableField("paper_account.max_positions", "Max open positions", "optint", "Empty = no limit."),
     EditableField("paper_account.max_positions_per_coin", "Max positions per coin", "optint", "Empty = no limit."),
@@ -58,6 +61,8 @@ FIELDS: tuple[EditableField, ...] = (
     EditableField("live_account.starting_balance", "Live balance", "money", "Balance the live preview starts with."),
     EditableField("live_account.symbols", "Coins traded live", "coins", "Live trading (and the live preview) uses only these coins."),
     EditableField("live_account.risk_per_trade", "Risk per trade", "percent"),
+    EditableField("live_account.max_open_risk", "Max open risk", "optpercent",
+                  "Open positions together lose at most this share at their stops; bigger trades are made smaller."),
     EditableField("live_account.leverage_cap", "Leverage cap", "float"),
     EditableField("live_account.max_positions", "Max open positions", "optint", "Empty = no limit."),
     EditableField("live_account.max_positions_per_coin", "Max positions per coin", "optint", "Empty = no limit."),
@@ -68,6 +73,9 @@ FIELDS: tuple[EditableField, ...] = (
     EditableField("goal.min_trades", "Strategy trades", "int", "Forward shadow trades of the baseline needed."),
     EditableField("goal.min_days", "Days running", "int"),
     EditableField("goal.min_expectancy_r", "Expectancy (R per trade)", "float", step=0.01),
+    EditableField("goal.min_edge_lower_r", "Edge lower bound (R, 90%)", "float",
+                  "The expectancy must beat this with 90% confidence. Trades of one market move are resampled together.",
+                  step=0.01),
     EditableField("goal.min_profit_factor", "Profit factor", "float", step=0.05),
     EditableField("goal.max_drawdown", "Max drawdown", "percent", "Checked on the live preview."),
     EditableField("goal.min_snapshot_coverage", "Snapshot coverage", "percent", "Live TradingView reads in the last 7 days."),
@@ -96,6 +104,16 @@ FIELDS: tuple[EditableField, ...] = (
           "A proposal must first beat the baseline in both halves of the stored history."),
     EditableField("research.enabled", "Daily research run", "bool", "Claude studies the journal once a day (Phase 5)."),
     EditableField("research.daily_time_utc", "Research time (UTC)", "time"),
+    EditableField("alerts.enabled", "Phone alerts", "bool",
+                  "Problems (failing reads, the clock, a stopped agent) and notices go to the ntfy app on your phone. "
+                  "Needs NTFY_TOPIC in .env."),
+    EditableField("alerts.trades", "Demo trade messages", "bool", "A message for every demo trade opened, skipped and closed."),
+    EditableField("alerts.status_hours", "Status every (hours)", "optint",
+                  "The open positions (entry, SL, TP, price, profit or loss) every N hours, at 00:00 UTC and its multiples, "
+                  "when there are any. Write 'status' in the ntfy app for it at any time. Empty = off."),
+    EditableField("alerts.failed_cycles", "Alert after failed cycles", "int", "Cycles in a row with failed TradingView reads."),
+    EditableField("alerts.stale_minutes", "Agent silent for (minutes)", "float",
+                  "The dashboard alerts when the agent has not finished a cycle this long."),
 )
 BY_PATH = {f.path: f for f in FIELDS}
 GROUPS = {
@@ -106,6 +124,7 @@ GROUPS = {
     "TradingView": [f for f in FIELDS if f.path.startswith("tradingview.")],
     "Research": [f for f in FIELDS if f.path.startswith("research.") or f.path.startswith("learning.")],
     "Trading exchange (applies when the agent restarts)": [f for f in FIELDS if f.path.startswith("exchange.")],
+    "Alerts": [f for f in FIELDS if f.path.startswith("alerts.")],
 }
 
 

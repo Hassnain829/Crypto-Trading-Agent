@@ -30,4 +30,5 @@ def settings(tmp_path: Path) -> Settings:
                                   "AGENT-HTF": "9yUw9zox"}
     loaded.paper_account.symbols = None
     loaded.live_account.symbols = None
+    loaded.alerts.enabled = False  # tests never send phone messages, even when .env has NTFY_TOPIC
     return loaded

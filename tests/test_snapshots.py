@@ -6,6 +6,7 @@ from tradeagent.journal import connect, migrate
 from tradeagent.tv.coverage import coverage, expected_bars
 from tradeagent.tv.repaint import compare_values
 from tradeagent.tv.snapshots import (
+    NOT_CLOSED,
     Snapshot,
     build_snapshot,
     resolve_signal_version,
@@ -63,6 +64,11 @@ def test_bad_snapshots_explain_the_problem(overrides, problem):
     assert any(problem in p for p in snap.problems)
 
 
+def test_a_candle_is_good_only_once_the_chart_shows_a_later_one():
+    assert NOT_CLOSED in _build(_raw(last_bar_time=BAR)).problems  # still the chart's newest candle: may be forming
+    assert _build(_raw(last_bar_time=BAR + 300)).ok
+
+
 def test_store_replaces_failed_read_but_never_a_good_one(conn):
     store_snapshot(conn, _build(_raw(series_status=1)))
     store_snapshot(conn, _build(_raw()))
@@ -79,6 +85,18 @@ def test_signal_versions(conn):
     assert resolve_signal_version(conn, 1, *first) == (1, False)
     assert resolve_signal_version(conn, 1, *changed) == (2, True)
     assert resolve_signal_version(conn, 1, *first) == (1, True)  # reverted to an older version
+
+
+def test_brief_newer_version_is_not_a_change_every_hour(conn):
+    good = settings_fingerprint({"AGENT-HTF/60": {"Klinger": {"in_0": 38}}})
+    stale = settings_fingerprint({"AGENT-HTF/60": {}})  # a stale duplicate tab without the study
+    assert resolve_signal_version(conn, 4, *good) == (4, False)
+    store_snapshot(conn, Snapshot("XRP", "5m", BAR * 1000, 4, (BAR + 303) * 1000))
+    assert resolve_signal_version(conn, 4, *stale) == (5, True)
+    store_snapshot(conn, Snapshot("XRP", "5m", (BAR + 300) * 1000, 5, (BAR + 603) * 1000))
+    assert resolve_signal_version(conn, 4, *good) == (4, True)  # back to 4: reported once
+    store_snapshot(conn, Snapshot("XRP", "5m", (BAR + 600) * 1000, 4, (BAR + 903) * 1000))
+    assert resolve_signal_version(conn, 4, *good) == (4, False)  # then quiet, though 5 is the newest known
 
 
 def test_coverage_counts_ok_failed_and_missing(conn):

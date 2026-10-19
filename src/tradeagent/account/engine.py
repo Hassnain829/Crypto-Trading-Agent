@@ -17,7 +17,7 @@ from typing import Any
 
 from tradeagent.account.broker import Broker, ExitReport, PaperBroker
 from tradeagent.account.kill_switch import get_kill_switch, set_kill_switch
-from tradeagent.account.rules import MarketLimits, OpenPosition, check_entry, size_position, used_margin
+from tradeagent.account.rules import MarketLimits, OpenPosition, check_entry, open_risk, size_position, used_margin
 from tradeagent.config import PaperAccountConfig, Settings
 from tradeagent.journal.db import now_ms
 from tradeagent.sim.simulator import Costs
@@ -203,7 +203,8 @@ class AccountEngine:
         return counts
 
     def _consider(self, state: dict, cand: sqlite3.Row, kill: str) -> bool:
-        open_positions = [OpenPosition(p["symbol"], p["side"], p["notional"]) for p in self._open_positions()]
+        open_positions = [OpenPosition(p["symbol"], p["side"], p["notional"], p["risk_usd"] or 0.0)
+                          for p in self._open_positions()]
         reason = check_entry(
             symbol=cand["symbol"], open_positions=open_positions, balance=state["balance"],
             day_start_balance=state["day_start_balance"], rules=self.rules, kill_switch=kill,
@@ -211,7 +212,8 @@ class AccountEngine:
         if reason is None:
             quality = json.loads(cand["context_json"] or "{}").get("quality")
             sizing = size_position(state["balance"], cand["entry_ref"], cand["stop_initial"], self.rules,
-                                   self._limits(cand["symbol"]), used_margin(open_positions, self.rules), quality)
+                                   self._limits(cand["symbol"]), used_margin(open_positions, self.rules), quality,
+                                   open_risk(open_positions))
             if isinstance(sizing, str):
                 reason = sizing
         if reason is not None:

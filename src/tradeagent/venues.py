@@ -112,6 +112,11 @@ class MarketData:
             return []
         return self.exchange.fetch_funding_rate_history(self.symbol(ref), since=since, limit=limit)
 
+    def fetch_price(self, ref: str) -> float | None:
+        """The last traded price now (for status messages; trades always use closed candles)."""
+        price = self.exchange.fetch_ticker(self.symbol(ref)).get("last")
+        return float(price) if price is not None else None
+
     def fetch_time(self) -> int:
         """Server time in ms; the computer's clock where the venue does not provide one."""
         if self.venue.server_time:

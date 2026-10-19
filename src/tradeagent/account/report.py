@@ -46,21 +46,58 @@ def consistency_issues(conn: sqlite3.Connection) -> tuple[int, list[str]]:
     return len(rows), issues
 
 
-def forward_sample(conn: sqlite3.Connection, since: int | None, symbols: list[str] | None = None) -> list[float]:
-    """Net R of the current baseline's closed shadow trades (every signal it took) since `since`, on the coins
-    the account trades (`symbols`; None = every coin).
+CLUSTER_GAP_MS = 30 * 60_000  # trades entered within 30 minutes of each other move together (one market move)
+EDGE_LEVEL = 0.90
+
+
+def forward_trades(conn: sqlite3.Connection, since: int | None, symbols: list[str] | None = None) -> list[tuple[int, float]]:
+    """(entry time, net R) of the current baseline's closed shadow trades (every signal it took) since `since`, on
+    the coins the account trades (`symbols`; None = every coin), in exit order.
 
     Trades count by the rules, not the name: after a promotion, the forward trades the winner made as a challenger
     (identical rules) count for the new baseline, so the gate does not start from zero. One trade per signal."""
     only = f" AND t.symbol IN ({', '.join('?' * len(symbols))})" if symbols else ""
-    return [r[0] for r in conn.execute(
-        "SELECT r_net FROM (SELECT t.r_net, t.exit_time, ROW_NUMBER() OVER (PARTITION BY t.symbol, t.timeframe, t.side,"
-        " t.confirm_time ORDER BY v.role = 'baseline' DESC) AS n FROM trades t JOIN variants v ON v.id = t.variant_id"
+    return [(r[0], r[1]) for r in conn.execute(
+        "SELECT entry_time, r_net FROM (SELECT t.entry_time, t.r_net, t.exit_time, ROW_NUMBER() OVER (PARTITION BY"
+        " t.symbol, t.timeframe, t.side, t.confirm_time ORDER BY v.role = 'baseline' DESC) AS n FROM trades t"
+        " JOIN variants v ON v.id = t.variant_id"
         " WHERE v.params_hash = (SELECT params_hash FROM variants WHERE role = 'baseline')"
         " AND t.book = 'exploration' AND t.taken = 1 AND t.status = 'closed' AND t.entry_time >= ?" + only + ")"
         " WHERE n = 1 ORDER BY exit_time",
         (since or 0, *(symbols or [])),
     )]
+
+
+def forward_sample(conn: sqlite3.Connection, since: int | None, symbols: list[str] | None = None) -> list[float]:
+    """Net R of the forward trades (see forward_trades)."""
+    return [r for _t, r in forward_trades(conn, since, symbols)]
+
+
+def edge_lower_bound(trades: list[tuple[int, float]], level: float = EDGE_LEVEL, draws: int = 5000) -> float | None:
+    """The expectancy (R per trade) that the strategy beats with `level` confidence: a cluster bootstrap.
+
+    The coins move together and the 5m and 15m charts often signal the same move, so trades entered within
+    CLUSTER_GAP_MS of each other are resampled as one block. Counting them as independent would overstate the
+    confidence (2026-10-19: 43 trades were only 22 independent moves). Fixed seed: the same trades give the same
+    number. None with fewer than 5 clusters."""
+    import random
+
+    clusters: list[list[float]] = []
+    last = None
+    for entry, r in sorted(trades):
+        if last is None or entry - last > CLUSTER_GAP_MS:
+            clusters.append([])
+        clusters[-1].append(r)
+        last = entry
+    if len(clusters) < 5:
+        return None
+    rng = random.Random(7)
+    means = []
+    for _ in range(draws):
+        picked = [rng.choice(clusters) for _ in clusters]
+        means.append(sum(sum(c) for c in picked) / sum(len(c) for c in picked))
+    means.sort()
+    return means[int((1 - level) * draws)]
 
 
 def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
@@ -112,8 +149,10 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
     days = (time.time() * 1000 - begin) / 86_400_000 if begin else 0.0
     expectancy = sum(r["r_net"] for r in closed) / len(closed) if closed else None
     profit_factor = sum(wins) / -sum(losses) if losses else None
-    sample = forward_sample(conn, started_at, settings.paper_account.symbols)
+    timed = forward_trades(conn, started_at, settings.paper_account.symbols)
+    sample = [r for _t, r in timed]
     sample_exp = sum(sample) / len(sample) if sample else None
+    lower = edge_lower_bound(timed)
     sample_losses = -sum(r for r in sample if r < 0)
     sample_pf = sum(r for r in sample if r > 0) / sample_losses if sample_losses else None
     checked, issues = consistency_issues(conn)
@@ -144,6 +183,11 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
               sample_exp is not None and sample_exp >= goal.min_expectancy_r, ratio(sample_exp, goal.min_expectancy_r)),
         check("strategy profit factor", f"{sample_pf:.2f} / {goal.min_profit_factor}" if sample_pf is not None else "-",
               sample_pf is not None and sample_pf >= goal.min_profit_factor, ratio(sample_pf, goal.min_profit_factor)),
+        check(f"edge is real ({EDGE_LEVEL:.0%} lower bound, moves resampled together)",
+              f"{lower:+.3f}R / > {goal.min_edge_lower_r:+.2f}R" if lower is not None else "too few trades",
+              lower is not None and lower > goal.min_edge_lower_r,
+              0.0 if lower is None or sample_exp is None or sample_exp <= goal.min_edge_lower_r
+              else max(0.0, (lower - goal.min_edge_lower_r) / (sample_exp - goal.min_edge_lower_r))),
         check("live preview net PnL > 0", f"{preview['net_pnl']:+.2f} USDT ({preview['taken']} trades)",
               preview["net_pnl"] > 0 and preview["taken"] > 0, 0.0),
         check("live preview max drawdown", f"{preview_dd:.1%} / {goal.max_drawdown:.0%}",
@@ -173,6 +217,7 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
         "strategy_trades": len(sample),
         "strategy_expectancy_r": sample_exp,
         "strategy_profit_factor": sample_pf,
+        "strategy_edge_lower_r": lower,
         "strategy_win_rate": sum(1 for r in sample if r > 0) / len(sample) if sample else None,
         "days_running": days,
         "snapshot_coverage": snapshot_coverage,

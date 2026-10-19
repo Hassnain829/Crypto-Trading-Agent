@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import sqlite3
 import time
@@ -10,14 +11,17 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from tradeagent import resources
+from tradeagent.alerts import Alerter
 from tradeagent.config import Settings
 from tradeagent.journal import log_event
 from tradeagent.market.clock import ServerClock
 from tradeagent.tv import js
 from tradeagent.tv.catalog import Catalog
-from tradeagent.tv.cdp import CDPError, ChartPage, TradingViewCDP
+from tradeagent.journal.db import now_ms, write_status
+from tradeagent.tv.cdp import VERIFIED_APP_VERSIONS, CDPError, ChartPage, TradingViewCDP, app_version
 from tradeagent.tv.schedule import TF_SECONDS, TV_INTERVAL, closing_at, last_closed_bar, next_boundary
 from tradeagent.tv.snapshots import (
+    NOT_CLOSED,
     Snapshot,
     build_snapshot,
     failed_snapshot,
@@ -34,6 +38,9 @@ log = logging.getLogger("tradeagent.reader")
 REPAIR_BARS = 12
 
 INPUTS_WAIT_S = 120  # after a TradingView start the indicators of a tab can take a while to load
+NOT_CLOSED_RETRIES = 3  # a candle read before the chart shows the next one is read again this often...
+NOT_CLOSED_WAIT_S = 1.0  # ...this many seconds apart
+CLOCK_EVERY_S = 900  # the venue's clock offset is measured this often (a stale offset shifts every read)
 LATE_WAKE_S = 600  # a candle close noticed this late means the computer slept; it is skipped
 
 
@@ -72,6 +79,8 @@ class SignalReader:
         self.watchdog = Watchdog(settings, self.cdp)
         self.signal_version = tv.signal_version
         self._timeout_ms = int(tv.prepare_timeout_s * 1000)
+        self.alerter: Alerter | None = None  # the agent sets one: phone messages for failing reads and the clock
+        self._bad_cycles = 0  # cycles in a row with a failed read
 
     def template_for(self, timeframe: str) -> str:
         if timeframe in self.catalog.chart_templates:
@@ -82,8 +91,30 @@ class SignalReader:
         """Sync the clock, repair TradingView if needed, and check the indicator settings."""
         await asyncio.to_thread(self.clock.measure)
         actions = await self.watchdog.ensure()
+        await self._check_app_version()
         await self.check_signal_version()
         return actions
+
+    async def _check_app_version(self) -> None:
+        """The reader uses TradingView's undocumented internal API: an update can break it. Record the version and
+        say so when it changed since the last start."""
+        try:
+            version = app_version(await self.cdp.version())
+        except Exception as exc:
+            log.debug("TradingView version not read: %s", _short(exc))
+            return
+        if not version:
+            return
+        row = self.conn.execute("SELECT value_json FROM agent_status WHERE key = 'tradingview'").fetchone()
+        before = json.loads(row[0]).get("version") if row else None
+        write_status(self.conn, "tradingview", {"version": version, "at": now_ms()})
+        if before and before != version:
+            checked = "" if version in VERIFIED_APP_VERSIONS else " The reader was not checked with this version yet."
+            message = f"TradingView Desktop changed from {before} to {version}.{checked} Watch the next reads."
+            log.warning(message)
+            log_event(self.conn, "WARNING", "reader", message)
+            if self.alerter:
+                self.alerter.notice(message)
 
     def _expected_studies(self, layout_id: str) -> dict[str, set[str]]:
         """Chart interval -> the indicators its template reads, for one AGENT layout."""
@@ -138,8 +169,34 @@ class SignalReader:
             message = f"indicator settings changed: snapshots now use signal version {version}"
             log.warning(message)
             log_event(self.conn, "WARNING", "reader", message, {"fingerprint": fingerprint})
+            if self.alerter:
+                self.alerter.notice(f"{message}. If nobody changed an indicator on an AGENT chart, check TradingView.")
         self.signal_version = version
         return version
+
+    async def check_clock(self) -> None:
+        """Measure the venue's clock offset; alert when this computer's clock is off by more than allowed."""
+        try:
+            offset = await asyncio.to_thread(self.clock.measure)
+        except Exception as exc:
+            log.warning("clock measurement failed: %s", _short(exc))
+            return
+        if self.alerter is None or offset is None:
+            return
+        limit = self.settings.alerts.clock_offset_ms
+        if abs(offset) > limit:
+            self.alerter.problem("clock", f"this computer's clock is {offset / 1000:+.1f} s off the exchange (limit "
+                                          f"{limit / 1000:g} s). Check Windows time sync: w32tm /query /status")
+        else:
+            self.alerter.solved("clock", f"the clock is back in sync ({offset:+d} ms)")
+
+    async def _check_version_now(self) -> None:
+        """Before every read: changed indicator inputs get their own signal version from this read on, not up to an
+        hour later. A chart whose indicators are still loading is left to the hourly check, which waits for it."""
+        try:
+            await self.check_signal_version(wait_s=0)
+        except Exception as exc:
+            log.debug("signal version not checked this cycle: %s", _short(exc))
 
     async def read(self, timeframes: list[str], boundary_s: int | None = None) -> list[Snapshot]:
         """Read the candles that closed at `boundary_s` (or the last closed ones) and store them."""
@@ -195,14 +252,19 @@ class SignalReader:
                 snaps.append(failed(tf, f"no {tf} chart in the tab"))
                 continue
             spec = self.catalog.js_spec(self.template_for(tf))
-            try:
-                raw = await self.cdp.evaluate(page, js.read_closed(spec, index, bar_times[tf]))
-            except CDPError as exc:
-                raw = {"error": f"read failed: {exc}"}
-            snap = build_snapshot(
-                raw, symbol=coin, timeframe=tf, tradingview_symbol=tv_symbol, bar_time_s=bar_times[tf],
-                signal_version=self.signal_version, read_at_ms=self.clock.now_ms(), spec=spec,
-            )
+            for attempt in range(NOT_CLOSED_RETRIES + 1):
+                try:
+                    raw = await self.cdp.evaluate(page, js.read_closed(spec, index, bar_times[tf]))
+                except CDPError as exc:
+                    raw = {"error": f"read failed: {exc}"}
+                snap = build_snapshot(
+                    raw, symbol=coin, timeframe=tf, tradingview_symbol=tv_symbol, bar_time_s=bar_times[tf],
+                    signal_version=self.signal_version, read_at_ms=self.clock.now_ms(), spec=spec,
+                )
+                # The chart's next candle starts with its first trade: give a quiet moment a little longer.
+                if NOT_CLOSED not in snap.problems or attempt == NOT_CLOSED_RETRIES:
+                    break
+                await asyncio.sleep(NOT_CLOSED_WAIT_S)
             if not prep.get("ok"):
                 snap.problems.append("chart was not fully prepared (history or indicators still loading)")
             snaps.append(snap)
@@ -270,7 +332,7 @@ class SignalReader:
                     pass
         await self._run_hourly(hourly)
         step = min(TF_SECONDS[tf] for tf in self.settings.all_timeframes)
-        last_hourly = time.monotonic()
+        last_hourly = last_clock = time.monotonic()
         cycles = 0
         log.info("reader started (signal version %s)", self.signal_version)
         while not stop.is_set():
@@ -300,6 +362,9 @@ class SignalReader:
                 actions = await self.watchdog.ensure()
                 if actions:
                     log_event(self.conn, "WARNING", "watchdog", "; ".join(actions))
+                    if self.alerter:
+                        self.alerter.notice("TradingView watchdog: " + "; ".join(actions))
+                await self._check_version_now()
                 snaps = await self.read(timeframes, boundary)
                 self._record_cycle(boundary, snaps)
                 if after_cycle:
@@ -310,9 +375,13 @@ class SignalReader:
                 else:
                     log.exception("cycle failed")
                 log_event(self.conn, "ERROR", "reader", f"cycle failed: {_short(exc)}")
+                self._count_bad_cycle(f"the cycle failed: {_short(exc)}")
             if time.monotonic() - last_hourly >= 3600:
-                last_hourly = time.monotonic()
+                last_hourly = last_clock = time.monotonic()
                 await self._run_hourly(hourly)
+            elif time.monotonic() - last_clock >= CLOCK_EVERY_S:
+                last_clock = time.monotonic()
+                await self.check_clock()
             cycles += 1
             if max_cycles is not None and cycles >= max_cycles:
                 break
@@ -325,12 +394,20 @@ class SignalReader:
         if bad:
             details = [{"symbol": s.symbol, "timeframe": s.timeframe, "problems": s.problems} for s in bad]
             log_event(self.conn, "WARNING", "reader", message, details)
+            first = bad[0]
+            self._count_bad_cycle(f"{message}; e.g. {first.symbol} {first.timeframe}: {'; '.join(first.problems)[:300]}")
+        else:
+            self._bad_cycles = 0
+            if self.alerter:
+                self.alerter.solved("reads", f"TradingView reads are good again ({message})")
+
+    def _count_bad_cycle(self, what: str) -> None:
+        self._bad_cycles += 1
+        if self.alerter and self._bad_cycles >= self.settings.alerts.failed_cycles:
+            self.alerter.problem("reads", f"{self._bad_cycles} cycles in a row with failed TradingView reads. Last: {what}")
 
     async def _hourly(self) -> None:
-        try:
-            await asyncio.to_thread(self.clock.measure)
-        except Exception as exc:
-            log.warning("clock measurement failed: %s", _short(exc))
+        await self.check_clock()
         try:
             await self.check_signal_version()
         except Exception as exc:

@@ -1,5 +1,5 @@
 id	created	name	source	change	status	decided	challenger_trades	challenger_r	baseline_trades	baseline_r	lesson
-1	2026-10-04	video_original	setups.yaml	{"entry":{"mode":"market"},"filters":{"min_stop_pct":0.0}}	running						
+1	2026-10-04	video_original	setups.yaml	{"entry":{"mode":"market"},"filters":{"min_stop_pct":0.0}}	stopped	2026-10-18					Reference only. Forward 4-18 Oct on XRP/SOL/ETH: 306 trades, -0.225R a trade, -68.8R in total, profit factor 0.70, against the baseline's +0.373R on 38 trades. The video's original rules lose money; the minimum stop distance (1.5%) and limit entries carry the edge. Retired.
 2	2026-10-04	market_entry	setups.yaml	{"entry":{"mode":"market"}}	running						
 3	2026-10-04	min_stop_1pct	setups.yaml	{"filters":{"min_stop_pct":1.0}}	stopped	2026-10-04					History on XRP/SOL/ETH: +0.072R a trade over 429 trades against the baseline's +0.237R, worse in both halves (+0.060R and +0.082R against +0.253R and +0.221R). Stops between 1% and 1.5% lose to costs. Retired before the forward test.
 4	2026-10-04	min_stop_2pct	setups.yaml	{"filters":{"min_stop_pct":2.0}}	stopped	2026-10-04					History: +0.142R over 100 trades against +0.237R, worse overall and in the first half (+0.012R against +0.253R). Half the trades and no better: 1.5% stays the minimum. Retired before the forward test.

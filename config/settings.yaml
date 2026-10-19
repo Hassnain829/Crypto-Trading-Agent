@@ -66,14 +66,16 @@ paper_account:                   # demo account: takes every baseline signal (th
   max_positions: null            # null = no limit; live limits (e.g. 2) are set before going live
   max_positions_per_coin: null   # null = no limit (live: e.g. 1)
   daily_loss_stop: null          # null = off; live: 0.10-0.12 of the day's starting balance
+  max_open_risk: 0.12            # open positions together lose at most 12% at their stops; bigger trades are made smaller, not skipped (the user, 2026-10-19)
   leverage_cap: 10               # each position is sized down to the free margin at 10x
   symbols: [XRP, SOL, ETH]       # v3.1 (2026-10-04): the coins the demo trades
 
 live_account:                    # limits for live trading (Phase 6); edit them in the dashboard before going live
   starting_balance: 150
   risk_per_trade: 0.02
-  max_positions: 2
-  max_positions_per_coin: 1
+  max_positions: null            # 2026-10-19: no position count limits; the open-risk budget below sizes trades down
+  max_positions_per_coin: null   #   instead of skipping them, as in the demo (the user accepted 8-12% open risk)
+  max_open_risk: 0.12
   daily_loss_stop: 0.10          # 10% of the day's starting balance
   leverage_cap: 10
   symbols: [XRP, SOL, ETH]       # coins traded live (v3.1)
@@ -91,10 +93,20 @@ research:                        # daily Claude research run (Phase 5)
   enabled: true                  # the agent runs `claude -p /research` once a day (Pro login on this computer)
   daily_time_utc: "06:00"
 
+alerts:                          # phone messages through the ntfy app (topic in .env: NTFY_TOPIC)
+  enabled: true
+  trades: true                   # a message for every demo trade opened, skipped and closed
+  failed_cycles: 3               # alert after this many cycles in a row with failed TradingView reads
+  clock_offset_ms: 1000          # alert when this computer's clock is off the exchange by more
+  stale_minutes: 15              # the dashboard alerts when the agent has not finished a cycle this long
+  status_hours: 4                # open positions (entry, SL, TP, price, P/L) every 4 h at 00/04/08.. UTC; write 'status' in the app any time
+  repeat_hours: 6                # an unsolved problem is repeated at most this often
+
 goal:                            # go-live gate (proposed; editable later in the dashboard)
   min_trades: 100                # the baseline's forward shadow trades (every signal); ~16-17 days at ~6 a day
   min_days: 14
   min_expectancy_r: 0.10
+  min_edge_lower_r: 0.0           # and above this with 90% confidence (trades of one market move resampled together)
   min_profit_factor: 1.3
   max_drawdown: 0.15
   min_snapshot_coverage: 0.99

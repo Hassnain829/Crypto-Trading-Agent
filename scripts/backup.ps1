@@ -13,10 +13,16 @@
 #
 # The zip holds the keys: keep it private and never put it in git or a public share.
 # The code is not in the zip (it is in git). Nothing in the project is changed or deleted.
+#
+# The daily scheduled backup (scripts\install_startup_tasks.ps1) runs it with -NoKeys -Keep 14:
+#   -NoKeys   leaves .env out (keys can be pasted again; an unattended zip should not hold them)
+#   -Keep N   afterwards deletes all but the newest N backup-*.zip files in $Dest (0 = keep all)
 
 param(
     [string]$Dest = "C:\CryptAI-Backups",
-    [switch]$NoResearch
+    [switch]$NoResearch,
+    [switch]$NoKeys,
+    [int]$Keep = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,7 +31,7 @@ $python = Join-Path $root ".venv\Scripts\python.exe"
 $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd-HHmm") + "utc"
 $stage = Join-Path ([IO.Path]::GetTempPath()) "cryptai-backup-$stamp"
 $zip = Join-Path $Dest "backup-$stamp.zip"
-$hasKeys = Test-Path (Join-Path $root ".env")
+$hasKeys = (Test-Path (Join-Path $root ".env")) -and -not $NoKeys
 
 if (Test-Path $stage) { Remove-Item $stage -Recurse -Force -Confirm:$false }
 New-Item -ItemType Directory -Force $stage, $Dest | Out-Null
@@ -38,7 +44,9 @@ try {
         -Export -Zip (Join-Path $stage "claude-context.zip")
     if ($LASTEXITCODE -ne 0) { Write-Host "Claude's memory was not included (see the message above)." }
 
-    if (Test-Path ".env") { Copy-Item ".env" $stage } else { Write-Host "No .env here: the keys are not included." }
+    if ($NoKeys) { Write-Host "-NoKeys: .env is not included." }
+    elseif (Test-Path ".env") { Copy-Item ".env" $stage }
+    else { Write-Host "No .env here: the keys are not included." }
     Copy-Item "config" (Join-Path $stage "config") -Recurse
     if (-not $NoResearch -and (Test-Path "data\research")) {
         $research = New-Item -ItemType Directory -Force (Join-Path $stage "research-data")
@@ -61,6 +69,12 @@ try {
 } finally {
     Pop-Location
     if (Test-Path $stage) { Remove-Item $stage -Recurse -Force -Confirm:$false }
+}
+
+if ($Keep -gt 0) {
+    $old = @(Get-ChildItem $Dest -Filter "backup-*.zip" | Sort-Object LastWriteTime -Descending | Select-Object -Skip $Keep)
+    foreach ($f in $old) { Remove-Item $f.FullName -Force -Confirm:$false }
+    if ($old.Count) { Write-Host "Deleted $($old.Count) older backup(s); the newest $Keep are kept." }
 }
 
 Write-Host ""

@@ -11,6 +11,9 @@ from typing import Any
 from tradeagent.journal.db import now_ms
 from tradeagent.tv.schedule import TF_SECONDS, TV_INTERVAL
 
+# The chart has no newer candle yet, so the read candle may still be forming (its values could change).
+NOT_CLOSED = "candle has not closed on the chart yet (no newer candle)"
+
 
 @dataclass
 class Snapshot:
@@ -59,6 +62,10 @@ def build_snapshot(
         snap.problems.append(f"chart interval {raw.get('interval')}, expected {TV_INTERVAL[timeframe]}")
     if raw.get("series_status") != 3 or raw.get("is_loading"):
         snap.problems.append("chart was still loading")
+    # Closed candles only: the chart must already show a later candle than the one read.
+    last_bar = raw.get("last_bar_time")
+    if last_bar is not None and last_bar <= bar_time_s:
+        snap.problems.append(NOT_CLOSED)
     snap.ohlcv = raw.get("ohlcv")
     snap.values = raw.get("values") or {}
     for key, indicator in spec.items():
@@ -120,15 +127,18 @@ def settings_fingerprint(inputs: Any) -> tuple[str, str]:
 
 
 def resolve_signal_version(conn: sqlite3.Connection, configured: int, fingerprint: str, canonical: str) -> tuple[int, bool]:
-    """Return (signal version for these inputs, whether they differ from the newest known version).
+    """Return (signal version for these inputs, whether it differs from the version in use).
 
     The first inputs ever seen get the configured version. Known inputs get their recorded version.
-    Unknown inputs get a new version number (newest + 1).
+    Unknown inputs get a new version number (newest + 1). The version in use is the one of the newest
+    snapshot (the newest known version before any snapshot), so a version seen only briefly, for example
+    from a stale duplicate tab, does not count as a change every hour afterwards.
     """
     row = conn.execute("SELECT signal_version FROM indicator_settings WHERE settings_hash = ?", (fingerprint,)).fetchone()
     newest = conn.execute("SELECT max(signal_version) FROM indicator_settings").fetchone()[0]
     if row:
-        return row[0], row[0] != newest
+        last = conn.execute("SELECT signal_version FROM snapshots ORDER BY id DESC LIMIT 1").fetchone()
+        return row[0], row[0] != (last[0] if last else newest)
     version = configured if newest is None else newest + 1
     with conn:
         conn.execute(

@@ -33,6 +33,19 @@ class ChartPage:
         return match.group(1) if match else None
 
 
+_APP_VERSION = re.compile(r"(?:TVDesktop|TradingView)/(\d+(?:\.\d+)+)")
+
+# TradingView Desktop versions whose internal API the reader was checked against (tv/js.py). Another version may
+# work, but its undocumented API can change: the doctor warns and the agent sends a notice when it changes.
+VERIFIED_APP_VERSIONS = ("3.4.1",)
+
+
+def app_version(version: dict[str, Any]) -> str | None:
+    """TradingView Desktop's version from /json/version (its User-Agent), e.g. "3.4.1"."""
+    match = _APP_VERSION.search(version.get("User-Agent") or "")
+    return match.group(1) if match else None
+
+
 def chart_pages(targets: list[dict[str, Any]]) -> list[ChartPage]:
     """Keep only the TradingView chart tabs from a /json/list response."""
     return [

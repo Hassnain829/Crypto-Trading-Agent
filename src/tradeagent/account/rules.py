@@ -31,6 +31,7 @@ class OpenPosition:
     symbol: str
     side: str
     notional: float
+    risk_usd: float = 0.0  # what it loses at its stop (as sized at entry)
 
 
 def round_down(qty: float, step: float) -> float:
@@ -47,11 +48,13 @@ def risk_for(rules: PaperAccountConfig, quality: str | None) -> float:
 
 def size_position(
     balance: float, entry: float, stop: float, rules: PaperAccountConfig, limits: MarketLimits, used_margin: float = 0.0,
-    quality: str | None = None,
+    quality: str | None = None, open_risk: float = 0.0,
 ) -> Sizing | str:
-    """Quantity for the trade's risk share (risk_for) of the balance, then the leverage cap and the free margin,
-    then rounding.
+    """Quantity for the trade's risk share (risk_for) of the balance, then the open-risk budget, the leverage cap and
+    the free margin, then rounding.
 
+    Open-risk budget (max_open_risk): the open positions together may lose at most this share of the balance at
+    their stops. A trade that would go over it is made smaller to fit, not skipped; only a used-up budget skips.
     Isolated margin at the leverage cap: each position locks notional / leverage_cap of the balance.
     A string means the trade is rejected.
     """
@@ -63,6 +66,14 @@ def size_position(
     if risk != rules.risk_per_trade:
         notes.append(f"quality {quality}: {risk:.1%} risk")
     qty = risk * balance / distance
+    if rules.max_open_risk is not None:
+        budget = rules.max_open_risk * balance - open_risk
+        if budget <= 0.001 * balance:  # what rounding leaves over is no budget
+            return (f"open risk budget used: {open_risk:.2f} USDT ({open_risk / balance:.1%} of the balance) is already "
+                    f"at risk, max {rules.max_open_risk:.0%}")
+        if qty * distance > budget:
+            qty = budget / distance
+            notes.append(f"risk reduced to {budget / balance:.1%} to stay within the {rules.max_open_risk:.0%} open-risk budget")
     by_leverage = rules.leverage_cap * balance / entry
     if qty > by_leverage:
         qty = by_leverage
@@ -113,3 +124,8 @@ def check_entry(
 def used_margin(open_positions: list[OpenPosition], rules: PaperAccountConfig) -> float:
     """Balance locked as isolated margin by the open positions."""
     return sum(p.notional for p in open_positions) / rules.leverage_cap
+
+
+def open_risk(open_positions: list[OpenPosition]) -> float:
+    """What the open positions together lose if every one of them hits its stop."""
+    return sum(p.risk_usd for p in open_positions)

@@ -11,6 +11,7 @@ from collections import Counter
 from typing import Any
 
 from tradeagent import __version__
+from tradeagent import alerts
 from tradeagent.account.engine import AccountEngine
 from tradeagent.config import Settings
 from tradeagent.journal import log_event
@@ -55,6 +56,11 @@ class Agent:
         self.account = AccountEngine(settings, conn)
         self.drawer = TradeDrawer(settings, conn, self.reader.cdp, self.reader.watchdog.pages)
         self._client: Any = None
+        self.alerter = alerts.Alerter(settings)  # phone (ntfy): failing reads, the clock, notices, demo trades
+        self.reader.alerter = self.alerter
+        self._trades_told = now_ms()  # demo decisions written after this are sent as messages
+        self.commands = alerts.CommandListener(settings, self._status_now)  # 'status' written in the ntfy app
+        self._price_client: Any = None  # live prices for the status answer (used only in the listener's thread)
 
     @property
     def client(self) -> Any:
@@ -153,13 +159,62 @@ class Agent:
             "clock_offset_ms": self.reader.clock.offset_ms,  # Binance minus this computer; corrected in every read
             "counts": {k: v for k, v in counts.items() if v},
         })
+        alerts.ping_healthcheck(self.settings)
+        self._tell_trades()
+        self._tell_status(boundary_s)
         try:  # after the heartbeat: a restart takes about two minutes and must not delay this cycle's records
             seconds_left = boundary_s + 300 - self.reader.clock.now_s()  # the next read is at the next 5-minute close
             restarted = await self.reader.watchdog.restart_if_heavy(seconds_left)
             if restarted:
                 log_event(self.conn, "WARNING", "watchdog", restarted)
+                self.alerter.notice(restarted)
         except Exception as exc:
             log.warning("TradingView memory restart failed: %s", exc)
+
+    def _tell_trades(self) -> None:
+        """A phone message for every demo position opened, skipped or closed since the last cycle."""
+        try:
+            messages, self._trades_told = alerts.trade_messages(self.conn, self._trades_told)
+        except Exception as exc:  # messages are a convenience: never break the cycle
+            log.warning("trade messages failed: %s", exc)
+            return
+        if self.settings.alerts.trades:
+            for text in messages:
+                self.alerter.notice(text, tags="chart_with_upwards_trend")
+
+    def _tell_status(self, boundary_s: int) -> None:
+        """Every alerts.status_hours (at 00:00, 04:00, ... UTC for 4): the open demo positions, if there are any."""
+        hours = self.settings.alerts.status_hours
+        if not hours or boundary_s % (hours * 3600):
+            return
+        try:
+            if self.conn.execute("SELECT 1 FROM account_trades WHERE account = 'paper' AND status = 'open' LIMIT 1").fetchone():
+                self.alerter.notice(alerts.status_text(self.conn, self.settings), tags="clipboard")
+        except Exception as exc:  # a convenience: never break the cycle
+            log.warning("status message failed: %s", exc)
+
+    def _status_now(self) -> str:
+        """The demo status with live prices, for a 'status' written in the ntfy app. Runs in the command
+        listener's thread, so it opens its own journal connection and price client."""
+        from tradeagent.journal import connect
+        from tradeagent.venues import market_data
+
+        conn = connect(self.settings.resolve(self.settings.journal.path))
+        try:
+            prices = {}
+            for (symbol,) in conn.execute(
+                    "SELECT DISTINCT symbol FROM account_trades WHERE account = 'paper' AND status = 'open'").fetchall():
+                try:
+                    if self._price_client is None:
+                        self._price_client = market_data(self.settings)
+                    price = self._price_client.fetch_price(self.settings.market(symbol))
+                    if price:
+                        prices[symbol] = price
+                except Exception as exc:  # the newest stored 1m close is used instead
+                    log.debug("live price of %s not fetched: %s", symbol, exc)
+            return alerts.status_text(conn, self.settings, prices)
+        finally:
+            conn.close()
 
     async def _hourly(self) -> None:
         try:  # the learning loop needs no network; its failure must not stop the market data
@@ -187,6 +242,7 @@ class Agent:
                                           "baseline": self.variants[0].id, "variants": len(self.variants)})
         stop = stop or asyncio.Event()
         watcher = asyncio.create_task(self._watch_stop_requests(stop, started_at))
+        self.commands.start()
         try:
             try:
                 await self._hourly()  # market info first: the paper account sizes orders with the step sizes

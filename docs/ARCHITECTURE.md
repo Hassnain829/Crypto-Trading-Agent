@@ -44,6 +44,7 @@ Research pack ──► Claude Code (Pro) ──► proposals
 | Paper account + Risk Engine (`account/`) | Live-like ledger with all live rules; `PaperBroker` behind the broker interface | 3 ✓ |
 | Dashboard (`dashboard/`) | Monitoring and control in the browser: six pages, settings with an audit log, exchange keys, live preview | 4 ✓ |
 | Settings store (`settings_store.py`) | Dashboard overrides of settings.yaml, validated and audited; the agent applies them every cycle | 4 ✓ |
+| Alerts (`alerts.py`) | Phone notifications through the ntfy app (Telegram is blocked from the VPS): failing reads and clock drift (agent), a silent agent (dashboard), notices (signal version, TradingView restart or update, demo trades); optional outside healthcheck ping; keys in `.env` | 5 ✓ |
 | Learning loop (`learning/`) | Research pack for Claude (`pack.py`); allowed changes (`space.py`); Experiment Manager: validation, history screen, forward judging, re-confirmation, promotion and lessons (`experiments.py`, `screen.py`); background jobs (`runner.py`) | 5 ✓ |
 | TradingView MCP server (optional) | Lets Claude Code look at charts during research sessions (needs Node.js) | 5 |
 | Live Broker | Real orders on the trading venue and reconciliation | 6 |

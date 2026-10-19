@@ -31,9 +31,10 @@ SECTIONS = [
     ("markets", "Markets", "currency_bitcoin"),
     ("tradingview", "TradingView", "candlestick_chart"),
     ("research", "Research", "psychology"),
+    ("alerts", "Alerts", "notifications"),
     ("audit", "Audit log", "history"),
 ]
-GROUP_FOR = {"account": 0, "live": 1, "costs": 2, "gate": 3, "tradingview": 4, "research": 5, "exchanges": 6}
+GROUP_FOR = {"account": 0, "live": 1, "costs": 2, "gate": 3, "tradingview": 4, "research": 5, "exchanges": 6, "alerts": 7}
 
 
 def build(store: Store, section: str = "account") -> None:
@@ -48,12 +49,14 @@ def build(store: Store, section: str = "account") -> None:
         with ui.tab_panels(tabs, value=tab.get(section, tab["account"])).props("vertical animated=false").classes(
                 "flex-1 min-w-0 bg-transparent"):
             groups = list(GROUPS.items())
-            for key in ("account", "costs", "gate", "tradingview", "research"):
+            for key in ("account", "costs", "gate", "tradingview", "research", "alerts"):
                 with ui.tab_panel(tab[key]).classes("p-0"):
                     title, fields = groups[GROUP_FOR[key]]
                     form_group(store, title, fields)
                     if key == "tradingview":
                         tradingview_info(store)
+                    if key == "alerts":
+                        alerts_panel(store)
             with ui.tab_panel(tab["live"]).classes("p-0 gap-4"):
                 title, fields = groups[GROUP_FOR["live"]]
                 inputs = form_group(store, title, fields)
@@ -454,6 +457,26 @@ def tradingview_info(store: Store) -> None:
                     ui.label(v).classes("kv-value")
         ui.table(rows=[{"id": k, "layout": k, "layout_id": v} for k, v in tv.layouts.items()], row_key="id",
                  columns=[column("layout", "Layout"), column("layout_id", "Layout id")]).classes("w-full").props("flat dense")
+
+
+def alerts_panel(store: Store) -> None:
+    from tradeagent import alerts
+
+    with card("Phone (ntfy app)", "Messages arrive as notifications of the free ntfy app. The topic stays in .env "
+              "(never in git): anyone who knows it can read the messages.", classes="w-full mt-4"):
+        name = alerts.topic(store.defaults)
+        status_pill("good" if name else "idle", f"Topic {name[:8]}…" if name else "Not set up")
+        ui.label("1. Install the ntfy app (Play Store / App Store). 2. Tap +, enter the topic from NTFY_TOPIC in the "
+                 "project's .env, server ntfy.sh, and subscribe. 3. Press the button below: a test notification arrives. "
+                 "The agent reads .env before every message, so a changed topic needs no restart.").classes("muted text-xs")
+        result = ui.label().classes("text-xs")
+
+        async def test() -> None:
+            problem = await run.io_bound(lambda: alerts.send_now(store.settings, "Test message from the dashboard: alerts work.",
+                                                                 tags="white_check_mark"))
+            result.set_text(problem or "Sent. Check the ntfy app.")
+            result.classes(remove="profit loss", add="loss" if problem else "profit")
+        ui.button("Send a test message", icon="send", on_click=test).props("outline dense")
 
 
 def audit_panel(store: Store) -> None:

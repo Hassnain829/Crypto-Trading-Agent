@@ -59,3 +59,15 @@ Reference only. Forward 4-18 Oct on XRP/SOL/ETH: 306 trades, -0.225R a trade, -6
 - Chart research 2026-10-18: continuation entries on a VWAP reclaim inside the Q-Trend trend (same risk rules) decay +0.188R -> +0.047R -> -0.162R (history halves, forward). Do not propose. Entries on the cheap side of VWAP did best (+0.60R, 28 trades): a hint only.
 - Indicators 2026-10-18: SMC Pro [RFX] is not machine-readable (0 plots). LuxAlgo and Liquidity Sweep signals have no robust standalone edge on 1h over 14 months. Trendline breakout (RFX) as a same-direction confirmation within 1-4 h before the agent's trades: about +0.55R vs +0.20R. Pending the repaint test (closed-source, pivot-based).
 - Repaint test 2026-10-18 (bar replay, warmed-up XRP): Trendline, LuxAlgo, Liquidity Sweep and Q-Trend never repaint; signals depend on the loaded history length. Quality sizing (3% when a Trendline breakout confirms within 2 h, else 2%) beat flat risk at the same average risk in both halves (+292% vs +233% over 3.5 months). ADX and UT Bot add nothing.
+
+## 2026-10-19 · session_08_24 · {"filters":{"session_utc":[8,24]}}
+(auto) Rejected on history before any forward trade: half 1: +0.165R, below the baseline's +0.198R
+
+## 2026-10-19 · exit_opposite_signal · {"exit":{"opposite_signal":true}}
+(auto) Rejected on history before any forward trade: expectancy +0.122R is not 0.05R above the baseline's +0.254R; profit factor 1.41 below the baseline's 1.55; half 1: +0.065R, below the baseline's +0.198R; half 2: +0.179R, below the baseline's +0.310R
+
+## 2026-10-19 · session_08_24 · {"filters":{"session_utc":[8,24]}}
+The night hours (00-08 UTC) are weak only in the 2nd half of the history: cutting them helped overall but made the 1st half worse (+0.165R vs +0.198R). Like session_04_20, hour filters are regime-dependent on this history; only forward data (session_07_21, session_13_21) can settle them.
+
+## 2026-10-19 · exit_opposite_signal · {"exit":{"opposite_signal":true}}
+Closing on the opposite Q-Trend trigger of the same chart cuts more winners than it saves losers: worse in both halves (+0.065R and +0.179R) and PF 1.41. A flip on the trading chart is mostly noise inside the trade; the fixed 1.5R target and swing stop stay better, as with be_1r.

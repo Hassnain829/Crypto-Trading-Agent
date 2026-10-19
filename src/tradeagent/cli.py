@@ -67,6 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     dr.add_argument("--clear", action="store_true", help="remove every drawing the agent made")
     ks = commands.add_parser("kill-switch", help="show or set the kill switch")
     ks.add_argument("mode", nargs="?", choices=["off", "pause", "close_all"])
+    commands.add_parser("alert-test", help="send a test message to the phone (ntfy app, topic NTFY_TOPIC in .env)")
     ej = commands.add_parser("export-journal", help="write a complete copy of the journal (safe while the agent runs)")
     ej.add_argument("path", nargs="?", default="data/transfer/journal.db")
     commands.add_parser("research-pack", help="write the research pack Claude reads (research/packs/)")
@@ -117,6 +118,14 @@ def main(argv: list[str] | None = None) -> int:
         from tradeagent.venue_replay import venue_replay
 
         return venue_replay(args.venue, args.balance or [150.0])
+    if args.command == "alert-test":
+        from tradeagent import alerts
+        from tradeagent.config import load_settings
+
+        settings = load_settings()
+        problem = alerts.send_now(settings, "Test message: alerts work.", tags="white_check_mark")
+        print(problem or f"Sent to the ntfy topic {alerts.topic(settings)}. Check the ntfy app on your phone.")
+        return 1 if problem else 0
     if args.command == "export-journal":
         import sqlite3
         from pathlib import Path

@@ -22,9 +22,11 @@ from pathlib import Path
 
 import psutil
 
+from tradeagent.alerts import Alerter
 from tradeagent.config import Settings
 from tradeagent.journal import log_event, migrate
 from tradeagent.journal.db import now_ms
+from tradeagent.settings_store import apply_overrides
 
 log = logging.getLogger("tradeagent.supervisor")
 
@@ -224,6 +226,9 @@ class Supervisor:
         self._last_start = float("-inf")
         self._started_once = False
         self._thread: threading.Thread | None = None
+        # Its own copy for the alerts, with the dashboard's overrides applied (settings stays settings.yaml).
+        self._alert_settings = settings.model_copy(deep=True)
+        self.alerter = Alerter(self._alert_settings)
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._loop, name="agent-supervisor", daemon=True)
@@ -243,9 +248,11 @@ class Supervisor:
         with self._lock:
             running = agent_running(self.settings, self.conn)
             if wanted_state(self.conn) == "running":
+                self._check_heartbeat()
                 if not running and time.monotonic() - self._last_start >= RESTART_AFTER_S:
                     return self._spawn()
                 return None
+            self.alerter.forget("agent")  # stopped on purpose: nothing to alert
             requested = stop_requested_at(self.conn) or 0
             pid = agent_pid(self.conn)
             if running and pid and now_ms() - requested > STOP_TIMEOUT_S * 1000:
@@ -253,6 +260,21 @@ class Supervisor:
                 log_event(self.conn, "WARNING", "supervisor", f"agent (pid {pid}) did not stop in {STOP_TIMEOUT_S} s; ended it")
                 return "ended"
             return None
+
+    def _check_heartbeat(self) -> None:
+        """Phone alert when the agent, wanted running, has not finished a cycle for alerts.stale_minutes
+        (crashed and not coming back, hung, or TradingView never ready)."""
+        apply_overrides(self._alert_settings, self.conn)
+        row = self.conn.execute("SELECT updated_at FROM agent_status WHERE key = 'heartbeat'").fetchone()
+        if row is None:
+            return
+        minutes = (now_ms() - row["updated_at"]) / 60_000
+        if minutes > self._alert_settings.alerts.stale_minutes:
+            last = time.strftime("%H:%M", time.gmtime(row["updated_at"] / 1000))
+            self.alerter.problem("agent", f"the agent has not finished a cycle for {minutes:.0f} min (last at {last} UTC). "
+                                          "The dashboard restarts a crashed agent; check data/logs/agent.log and TradingView.")
+        else:
+            self.alerter.solved("agent", "the agent is finishing its cycles again")
 
     def _spawn(self) -> str:
         pid = spawn_agent(self.settings)

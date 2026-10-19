@@ -147,7 +147,7 @@ def test_the_dashboard_data_layer_reads_a_journal(world):
     assert [h["version"] for h in store.learning()["history"]][-3:] == ["v2", "v3", "v3.1"]
     assert store.experiments()["rows"] == [] and store.experiments()["rules"]["min_trades"] == 100
     gate = store.gate()
-    assert len(gate["gate"]) == 9 and all({"name", "value", "ok", "progress"} <= set(c) for c in gate["gate"])
+    assert len(gate["gate"]) == 10 and all({"name", "value", "ok", "progress"} <= set(c) for c in gate["gate"])
     store.set_kill_switch("pause")
     assert store.kill_switch() == "pause"
 

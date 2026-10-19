@@ -211,3 +211,87 @@ def test_missed_candles_are_read_again_and_a_changed_symbol_is_reported(settings
     assert [r[0] for r in repaired] == [boundary - 300 - 3 * 300, boundary - 300 - 2 * 300]
     assert any("showed BITSTAMP:ETHUSD instead of" in r.getMessage() for r in caplog.records)
     assert conn.execute("SELECT count(*) FROM events WHERE message LIKE '%switched it back%'").fetchone()[0] == 1
+
+
+def test_a_candle_read_before_the_chart_shows_the_next_one_is_read_again(settings):
+    catalog = load_catalog(settings.resolve(settings.tradingview.catalog))
+    xrp = settings.exchange.symbols["XRP"].tradingview
+
+    class LateTickCDP(TabCDP):
+        """The chart shows the next candle only from the third read on (no trade yet right after the close)."""
+        reads = 0
+
+        async def evaluate(self, page, expression, *, await_promise=False):
+            raw = await super().evaluate(page, expression, await_promise=await_promise)
+            if "barTime" in expression or expression.startswith("(function (spec"):
+                self.reads += 1
+                bar = self.read_times[-1]
+                raw["last_bar_time"] = bar if self.reads < 3 else bar + 300
+            return raw
+
+    cdp = LateTickCDP(settings, catalog, xrp)
+    reader, _conn = _reader(settings, cdp, catalog)
+    page = next(p for p in cdp.pages if p.layout_id == settings.layout_for("XRP"))
+    boundary = 1_791_000_000 - 1_791_000_000 % 900
+    [snap] = asyncio.run(reader._read_tab(page, "XRP", False, ["5m"], {"5m": boundary - 300}))
+    assert snap.ok, snap.problems
+    assert cdp.read_times[:3] == [boundary - 300] * 3  # read three times, good on the third
+
+
+def test_changed_indicator_inputs_get_a_new_signal_version_in_the_next_cycle(settings):
+    catalog = load_catalog(settings.resolve(settings.tradingview.catalog))
+    full = _full(settings, catalog)
+    xrp = settings.layout_for("XRP")
+
+    def edited_after_start(layout_id: str, call: int) -> list[dict]:
+        charts = full(layout_id)
+        if layout_id == xrp and call > 1:  # someone changed an input on AGENT-XRP after the agent started
+            charts[0]["studies"] = {name: {"in_0": 2} for name in charts[0]["studies"]}
+        return charts
+
+    reader, conn = _reader(settings, InputsCDP(settings, edited_after_start), catalog)
+    assert asyncio.run(reader.check_signal_version(wait_s=5)) == 1
+
+    class CloseClock:
+        """First look: just before a candle close; then exactly at the read time after it."""
+        offset_ms, calls = 0, 0
+
+        def now_s(self) -> float:
+            self.calls += 1
+            return 1_791_000_000 - 10 if self.calls == 1 else 1_791_000_000 + settings.tradingview.read_delay_s
+
+        def now_ms(self) -> int:
+            return int(self.now_s() * 1000)
+
+    reader.clock = CloseClock()
+    versions = []
+
+    async def nothing(*_args, **_kwargs):
+        return []
+
+    async def record_read(timeframes, boundary_s=None):
+        versions.append(reader.signal_version)
+        return []
+    reader.start, reader._run_hourly, reader.watchdog.ensure, reader.read = nothing, nothing, nothing, record_read
+    asyncio.run(asyncio.wait_for(reader.run(max_cycles=1), timeout=5))
+    assert versions == [2]  # the read of that cycle already uses the new version
+
+
+def test_a_tradingview_update_is_noticed_once(settings, monkeypatch):
+    from tradeagent import alerts
+    from tradeagent.tv.cdp import app_version
+
+    ua = "Mozilla/5.0 AppleWebKit/537.36 TradingView/{v} Chrome/146.0 Electron/41.7.1 TVDesktop/{v}"
+    assert app_version({"User-Agent": ua.format(v="3.4.1")}) == "3.4.1" and app_version({}) is None
+    catalog = load_catalog(settings.resolve(settings.tradingview.catalog))
+    cdp = InputsCDP(settings, lambda layout_id, n: [])
+    reader, conn = _reader(settings, cdp, catalog)
+    sent = []
+    monkeypatch.setattr(alerts, "send", lambda s, text, **kw: sent.append(text))
+    reader.alerter = alerts.Alerter(settings)
+    for v in ("3.4.1", "3.4.1", "3.5.0"):
+        async def version(v=v):
+            return {"User-Agent": ua.format(v=v)}
+        cdp.version = version
+        asyncio.run(reader._check_app_version())
+    assert len(sent) == 1 and "changed from 3.4.1 to 3.5.0" in sent[0] and "not checked" in sent[0]

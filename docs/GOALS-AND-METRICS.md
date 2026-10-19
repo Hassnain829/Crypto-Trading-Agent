@@ -47,6 +47,7 @@ Live trading can start only when all of these are true. They are counted from th
 |---|---|---|
 | Sample size | The baseline's forward shadow trades (every signal it takes, ~6 a day) | ≥ 100 closed trades and ≥ 14 days |
 | Expectancy | Same | ≥ +0.10R per trade |
+| Edge is real (since 2026-10-19) | Same; trades entered within 30 minutes of each other are resampled together (cluster bootstrap) | The 90% lower bound of the expectancy > 0R |
 | Profit factor | Same | ≥ 1.3 |
 | Net result | Paper account (live limits) | Net PnL > 0 after all costs |
 | Max drawdown | Paper account | ≤ 15% |
@@ -56,6 +57,10 @@ Live trading can start only when all of these are true. They are counted from th
 When all checks pass, the dashboard shows "Gate met". You still decide. The gate never turns live trading on by itself.
 
 Why the sample is the shadow trades: the paper account takes only about 2 of the ~6 daily signals because of its position limits, so 150 paper trades would take about 70 days. The shadow trades follow the same rules and fills, so they test the strategy faster (decided 2026-10-03: 100 trades in about 16–17 days). The paper account still shows what the money would have done.
+
+Why the lower bound: XRP, SOL and ETH move together, and the 5m and 15m charts often signal the same move, so the trades are not independent. On 2026-10-19 the 43 forward trades were only 22 separate moves: +0.346R a trade, but a 90% lower bound of just +0.005R. A threshold on the average alone could pass on luck.
+
+Since 2026-10-19 the demo and the live limits share an open-risk budget of 12% (`max_open_risk`): all open positions together lose at most 12% of the balance at their stops, and a trade that would go over it is made smaller instead of skipped. The live limits no longer cap the number of positions, so the demo tests what live will trade (the live limits keep a 10% daily loss stop).
 
 The paper account has no limits, so its drawdown is deeper than a limited live account's. On ~100 days of history, v2 with no limits made +59.5% with a 30% max drawdown; with 2 positions and a 10% daily stop it made +19.5% with 17.9%. Before going live, the dashboard will replay the forward trades with the chosen live limits (Phase 4). The 15% drawdown target applies to that replay.
 

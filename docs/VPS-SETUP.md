@@ -103,6 +103,20 @@ Before paying for a long period:
 - **Research notes** (`research/`) and **settings** are in git. Settings changed in the dashboard are stored in the journal.
 - **Keys:** paste them again in the VPS dashboard (Settings > Exchanges), or copy `.env` over a secure channel. Never commit `.env`.
 - **Binance key settings:** Enable Reading and Enable Futures; never Withdrawals. Restrict access to the VPS's static IP. The futures account must be opened on Binance first.
+  - Make sure the IP is static. This VPS (Websouls) showed 185.228.92.43 on 2026-10-19, while older notes had another address; check with `Get-NetIPAddress` and ask the provider.
+- **Phone alerts with the ntfy app** (since 2026-10-19). Without them, nobody is told when the agent stops. Telegram is blocked from this Pakistani VPS (the TLS handshake to api.telegram.org is cut), so the free ntfy app is used instead.
+  1. `.env` holds `NTFY_TOPIC=<a long random name>`. Anyone who knows the name can read the messages, so keep it private.
+  2. Install **ntfy** on the phone (Play Store or App Store).
+  3. Tap **+**, enter the topic exactly, keep the server `ntfy.sh`, and tap **Subscribe**.
+  4. Run `.venv\Scripts\python -m tradeagent alert-test`, or use the button in Settings > Alerts. A test notification arrives. The agent reads `.env` before every message, so a changed topic needs no restart.
+
+  What arrives:
+  - Problems, with high priority: 3 cycles in a row with failed TradingView reads, the clock more than 1 s off, or the agent silent for 15 minutes (sent by the dashboard). A problem repeats at most every 6 hours, and a "SOLVED" message follows when it is fixed.
+  - Notices: a new signal version, a TradingView restart or update, and every demo trade opened (entry, SL, TP, risk), skipped or closed (Settings > Alerts).
+  - Status: every 4 hours (at 00:00, 04:00, ... UTC; `alerts.status_hours`), when positions are open. It lists each open position with entry, SL, TP, the current price and its profit or loss, then balance, equity and open risk.
+  - **Write `status` (or `s`) in the topic in the ntfy app** to get the same status with live prices at any time. The agent answers within about 20 seconds. `help` lists the commands.
+
+  Optional: `HEALTHCHECK_URL=<url>` from a free healthchecks.io check is pinged after every cycle. That service then emails you even when the whole VPS is down.
 
 ## 4. Check and start
 
@@ -113,6 +127,8 @@ Start-ScheduledTask -TaskName CryptAI-Dashboard
 ```
 
 The dashboard starts the agent; the agent starts TradingView in debug mode and downloads the venue's market data, newest candles first.
+
+`install_startup_tasks.ps1` also registers **CryptAI-Backup**. Every day at 03:00 (the VPS clock), it runs `scripts\backup.ps1 -NoKeys -Keep 14`: the journal, Claude's memory, the config and the research data go to `C:\CryptAI-Backups`, without `.env`, and the newest 14 zips are kept. Copy that folder off the VPS now and then.
 
 ## 5. Daily use
 

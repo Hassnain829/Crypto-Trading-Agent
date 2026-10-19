@@ -13,11 +13,15 @@ from tradeagent.config import Settings
 
 # What the scheduled research may do without asking: read, write research notes, and run the agent's own
 # research commands (which validate every proposal). No other commands, no code or config edits.
+# Experiment commands are listed one by one (research/program.md uses exactly these): `experiment promote`
+# (which writes config/setups.yaml, even early) and `experiment evaluate` (which can auto-promote) stay with
+# the agent's hourly judge and the user.
+RESEARCH_EXPERIMENT_COMMANDS = ("list", "propose", "try", "stop", "lesson")
 RESEARCH_TOOLS = [
     "Read", "Glob", "Grep",
     "Write(research/**)", "Edit(research/**)",
     "Bash(.venv/Scripts/python -m tradeagent research-pack*)",
-    "Bash(.venv/Scripts/python -m tradeagent experiment *)",
+    *(f"Bash(.venv/Scripts/python -m tradeagent experiment {name}*)" for name in RESEARCH_EXPERIMENT_COMMANDS),
     "Bash(.venv/Scripts/python -m tradeagent shadow-report*)",
     "Bash(.venv/Scripts/python -m tradeagent trades*)",
 ]

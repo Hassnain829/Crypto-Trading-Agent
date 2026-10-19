@@ -140,6 +140,9 @@ class PaperAccountConfig(_Section):
     max_positions: int | None = Field(default=None, ge=1, le=100)
     max_positions_per_coin: int | None = Field(default=None, ge=1, le=50)
     daily_loss_stop: float | None = Field(default=None, gt=0, le=0.5)
+    # Open-risk budget: the open positions together may lose at most this share of the balance at their stops.
+    # A new trade that would go over it is made smaller (never skipped unless the budget is used up). None = off.
+    max_open_risk: float | None = Field(default=None, gt=0, le=0.5)
     leverage_cap: float = Field(ge=1, le=50)
     # Coins the account trades; None = every coin. The shadow book keeps testing every coin either way.
     symbols: list[str] | None = None
@@ -156,6 +159,8 @@ class GoalConfig(_Section):
     min_trades: int = Field(ge=1)
     min_days: int = Field(ge=1)
     min_expectancy_r: float
+    # The expectancy must be above this with 90% confidence (cluster bootstrap, account/report.py edge_lower_bound).
+    min_edge_lower_r: float = 0.0
     min_profit_factor: float = Field(gt=0)
     max_drawdown: float = Field(gt=0, lt=1)
     min_snapshot_coverage: float = Field(gt=0, le=1)
@@ -184,6 +189,18 @@ class LearningConfig(_Section):
     screen_on_history: bool = True  # proposals must first beat the baseline in both halves of the history
 
 
+class AlertsConfig(_Section):
+    """Messages to the user's phone through the ntfy app (alerts.py). They need NTFY_TOPIC in .env."""
+
+    enabled: bool = True
+    trades: bool = True  # a message for every demo trade opened and closed
+    failed_cycles: int = Field(default=3, ge=1, le=100)  # alert after this many cycles in a row with failed reads
+    clock_offset_ms: int = Field(default=1000, ge=100)  # alert when this computer's clock is off by more
+    stale_minutes: float = Field(default=15, ge=6)  # the dashboard alerts when the agent's last cycle is older
+    status_hours: int | None = Field(default=4, ge=1, le=24)  # open positions every N hours (UTC multiples); None = off
+    repeat_hours: float = Field(default=6, ge=0.5)  # an unsolved problem is repeated at most this often
+
+
 class LoggingConfig(_Section):
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
     file: str = "data/logs/agent.log"
@@ -205,6 +222,9 @@ class Secrets(BaseModel):
     mexc_api_secret: SecretStr | None = None
     coinbase_api_key: SecretStr | None = None
     coinbase_api_secret: SecretStr | None = None
+    ntfy_topic: SecretStr | None = None  # alerts.py: the phone app subscribes to this topic (works like a password)
+    ntfy_server: SecretStr | None = None  # default https://ntfy.sh
+    healthcheck_url: SecretStr | None = None  # pinged after every cycle (an outside dead-man switch)
 
     @property
     def has_binance_keys(self) -> bool:
@@ -225,6 +245,7 @@ class Settings(_Section):
     goal: GoalConfig
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    alerts: AlertsConfig = Field(default_factory=AlertsConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     journal: JournalConfig = Field(default_factory=JournalConfig)
 

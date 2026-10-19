@@ -364,3 +364,70 @@ def test_quality_a_trades_risk_risk_tier_a(settings):
     assert any("quality A" in n for n in a.notes) and not b.notes
     off = rules.model_copy(update={"risk_tier_a": None})
     assert size_position(150.0, 2.0, 1.95, off, limits, quality="A").risk_usd == pytest.approx(3.0, abs=0.01)
+
+
+def test_the_open_risk_budget_makes_trades_smaller_instead_of_skipping_them(settings):
+    from tradeagent.account.rules import open_risk
+
+    rules = settings.paper_account.model_copy(update={"risk_per_trade": 0.02, "risk_tier_a": 0.03, "max_open_risk": 0.12})
+    limits = MarketLimits(0.0001, 0.0001, 5.0)
+    held = [OpenPosition("XRP", "long", 100.0, 4.0), OpenPosition("SOL", "long", 100.0, 6.0),
+            OpenPosition("ETH", "long", 100.0, 4.0)]  # 14 USDT = 7% of 200 already at risk
+    assert open_risk(held) == 14.0
+    full = size_position(200.0, 2.0, 1.95, rules, limits, quality="A", open_risk=open_risk(held))
+    assert full.risk_usd == pytest.approx(6.0, abs=0.01) and len(full.notes) == 1  # 7% + 3% fits in 12%: unchanged
+    smaller = size_position(200.0, 2.0, 1.95, rules, limits, quality="A", open_risk=20.0)  # 10% held: 2% left
+    assert smaller.risk_usd == pytest.approx(4.0, abs=0.01) and "open-risk budget" in smaller.notes[-1]
+    assert size_position(200.0, 2.0, 1.95, rules, limits, open_risk=24.0).startswith("open risk budget used")
+    off = rules.model_copy(update={"max_open_risk": None})
+    assert size_position(200.0, 2.0, 1.95, off, limits, open_risk=1000.0).risk_usd == pytest.approx(4.0, abs=0.01)
+
+
+def test_the_account_counts_the_risk_of_its_open_positions(world):
+    conn, settings = world
+    settings.paper_account.max_open_risk = 0.03  # room for one and a half 2% trades
+    settings.paper_account.max_positions = settings.paper_account.max_positions_per_coin = None  # only the budget
+    start = now_ms() - 10 * H
+    reset_account(conn, settings, from_now=True)
+    conn.execute("UPDATE account_state SET started_at = ?, last_entry_time = ?", (start, start))
+    first = add_trade(conn, "XRP", "long", start + M1, 1.0, 0.98, None, None)
+    second = add_trade(conn, "SOL", "long", start + 2 * M1, 20.0, 19.6, None, None)
+    third = add_trade(conn, "LINK", "long", start + 3 * M1, 20.0, 19.6, None, None)
+    AccountEngine(settings, conn).process()
+    a, b, c = paper(conn, first), paper(conn, second), paper(conn, third)
+    assert a["risk_usd"] == pytest.approx(0.02 * 150, rel=0.01)
+    assert b["risk_usd"] == pytest.approx(0.01 * 150, rel=0.01) and "open-risk budget" in b["notes"]
+    assert c["status"] == "rejected" and c["reject_reason"].startswith("open risk budget used")
+
+
+def test_the_edge_lower_bound_treats_one_market_move_as_one_sample():
+    from tradeagent.account.report import CLUSTER_GAP_MS, edge_lower_bound
+
+    gap = CLUSTER_GAP_MS + 1
+    steady = [(i * gap, r) for i, r in enumerate([1.5, -1, 1.5, 1.5, -1, 1.5, 1.5, -1, 1.5, 1.5] * 3)]
+    assert edge_lower_bound(steady) > 0  # 30 independent trades at +0.75R: the edge is real
+    assert edge_lower_bound(steady) == edge_lower_bound(steady)  # fixed seed: the gate does not flicker
+    # The same 30 results, but three coins entered each move together and shared its result: ten samples only.
+    moves = [1.5, -1, 1.5, 1.5, -1, 1.5, 1.5, -1, 1.5, 1.5]
+    together = [(m * 2 * gap + coin * 60_000, r) for m, r in enumerate(moves) for coin in range(3)]
+    assert edge_lower_bound(together) < edge_lower_bound(steady)
+    assert edge_lower_bound(steady[:4]) is None  # fewer than five moves: no verdict yet
+    coin_flip = [(i * gap, r) for i, r in enumerate([1.5, -1.5] * 10)]
+    assert edge_lower_bound(coin_flip) < 0
+
+
+def test_the_status_message_shows_each_open_position_with_its_price_and_result(world):
+    from tradeagent.alerts import status_text
+
+    conn, settings = world
+    start = now_ms() - 2 * H
+    reset_account(conn, settings, from_now=True)
+    conn.execute("UPDATE account_state SET started_at = ?, last_entry_time = ?", (start, start))
+    assert "no open positions" in status_text(conn, settings)
+    add_trade(conn, "XRP", "long", start + M1, 1.0, 0.98)
+    AccountEngine(settings, conn).process()
+    text = status_text(conn, settings, prices={"XRP": 1.01})
+    assert "1 open position" in text and "XRP 5m long (2h open)" in text
+    assert "Entry 1.0002  SL 0.98  TP 1.03" in text  # the market entry includes the slippage
+    now_line = next(line for line in text.splitlines() if line.startswith("Now 1.01: +"))
+    assert now_line.endswith("R)") and "Balance 150.00 USDT" in text

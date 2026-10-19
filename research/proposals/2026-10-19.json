@@ -1,0 +1,36 @@
+{
+  "summary": "Research run 2026-10-19 on baseline v0-773ea9 (history 254 trades, +0.254R, PF 1.55; forward 43 trades, +0.346R). No experiment was decided since the last run, and none of the 7 running challengers is broken (all have 20-43 forward trades). The exit, entry, stop and confirmation settings were already shown to be near a local optimum, so the three proposals target the two weak spots in the pack's breakdown: the night hours 00-08 UTC (60 trades, +0.078R together, 04-08 at -0.075R) and the short side (+0.143R, PF 1.28, max DD 15.5R against +0.367R for longs), plus an exit idea for the 44 stopped trades that first reached +0.5R.",
+  "proposals": [
+    {
+      "name": "session_08_24",
+      "change": {
+        "path": "filters.session_utc",
+        "value": [8, 24]
+      },
+      "hypothesis": "By hour, 00-04 UTC made +0.155R (40 trades) and 04-08 UTC -0.075R (20 trades, PF 0.88): 60 trades for +4.7R. Every hour from 08 to 24 is positive (194 trades, +59.9R, +0.309R a trade). Unlike session_04_20 (rejected because it cut the 20-24 hours, which are weak only in the 2nd half), this keeps the evening and only drops the Asian night, and it keeps about 1.9 trades a day across the coins.",
+      "expected": "about +0.31R a trade on about 194 history trades (+0.055R over the baseline); risk: the night hours may be weak in only one half",
+      "confidence": 0.3
+    },
+    {
+      "name": "short_strong_sell",
+      "change": {
+        "path": "trigger.short",
+        "value": "strong_sell"
+      },
+      "hypothesis": "Shorts are the weak side on the history: 128 trades, win 48%, +0.143R, PF 1.28 and a max drawdown of 15.5R, against longs at +0.367R and PF 1.89. trigger_strong (both sides) was rejected for too few trades (83) and an unstable 2nd half; requiring the strong flag only on shorts keeps all longs and should keep the trade count high while removing the weakest shorts.",
+      "expected": "fewer shorts, higher R per short, about +0.05R a trade overall; risk: forward shorts were the better side (+0.55R vs +0.20R in the 2026-10-18 notes), so this may be regime-dependent",
+      "confidence": 0.2
+    },
+    {
+      "name": "exit_opposite_signal",
+      "change": {
+        "path": "exit.opposite_signal",
+        "value": true
+      },
+      "hypothesis": "110 history trades hit the full stop at -1.042R each, and 44 of them had first reached +0.5R. An opposite Q-Trend trigger on the same chart means the trend that justified the trade has flipped; closing then should turn some of those full stops into small wins or small losses. The target stays 1.5R, unlike the rejected 'hold until the opposite signal' exit.",
+      "expected": "fewer full stops, slightly smaller average loss, +0.05R a trade or more; risk: it also cuts winners that dip after a flip and still reach 1.5R (the reason be_1r lost)",
+      "confidence": 0.25
+    }
+  ],
+  "lessons": []
+}

@@ -9,7 +9,7 @@ Ideas for after live trading is stable. Each one goes through the same path: sha
 | Smith VWAP | Needs its Pine source; may replace the standard VWAP |
 | Market regime detection | Trend vs range, so setups can be chosen per regime |
 | Setup selection by regime | A contextual bandit that learns which setup works in which regime |
-| Notifications | Telegram: trade opened/closed, daily summary, errors |
+| Notifications | Done early (2026-10-19, ntfy app): trades, errors and notices. Still open: a daily summary |
 | Dashboard login | Needed only if the dashboard is opened to the internet |
 | Claude API | For fully unattended research if Pro limits get in the way |
 | Capital scaling | Raise risk or capital only after N profitable weeks, by a fixed rule |
