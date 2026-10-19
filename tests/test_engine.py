@@ -380,3 +380,61 @@ def test_without_a_recent_breakout_the_trade_is_quality_b(world):
     SetupEngine(settings, variants, conn).process()
     ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
     assert ctx["quality"] == "B" and ctx["quality_reason"] is None
+
+
+def _open_interest(conn, at, now_amount, before_amount):
+    """The 15m OI snapshot at or before `at`, and the one 4 hours earlier."""
+    snap = at - at % 900_000
+    conn.executemany("INSERT INTO open_interest (symbol, time, amount, value) VALUES ('XRP', ?, ?, NULL)",
+                     [(snap, now_amount), (snap - 4 * 3_600_000, before_amount)])
+    conn.commit()
+
+
+def test_open_interest_rising_into_the_signal_makes_a_trade_quality_a(world):
+    conn, variants, settings = world
+    _open_interest(conn, T0 + 3 * M5, 101.5, 100.0)  # +1.5% in 4 hours, no Trendline breakout
+    _snap(conn, 0, _values(buy=1, hist=-5.0))
+    _snap(conn, 1, _values(hist=-1.0))
+    _snap(conn, 2, _values(hist=2.0), close=100.4)
+    SetupEngine(settings, variants, conn).process()
+    ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
+    assert ctx["quality"] == "A" and ctx["quality_reason"] == "open interest +1.5% in the last 4 h"
+    assert ctx["oi_change_4h"] == pytest.approx(0.015)
+
+
+def test_open_interest_rising_less_than_one_percent_stays_quality_b(world):
+    conn, variants, settings = world
+    _open_interest(conn, T0 + 3 * M5, 100.5, 100.0)
+    _snap(conn, 0, _values(buy=1, hist=-5.0))
+    _snap(conn, 1, _values(hist=-1.0))
+    _snap(conn, 2, _values(hist=2.0), close=100.4)
+    SetupEngine(settings, variants, conn).process()
+    ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
+    assert ctx["quality"] == "B" and ctx["oi_change_4h"] == pytest.approx(0.005)  # recorded for the forward check
+
+
+def test_open_interest_is_synced_in_15m_snapshots(world):
+    from tradeagent.market.candles import OI_STEP_MS, sync_open_interest
+
+    conn, _variants, _settings = world
+    now = 1_791_000_000_000 - 1_791_000_000_000 % OI_STEP_MS
+
+    class Venue:
+        class exchange:
+            has = {"fetchOpenInterestHistory": True}
+
+        calls: list[int] = []
+
+        def fetch_open_interest_history(self, ref, since=None, limit=500):
+            self.calls.append(since)
+            times = range(since - since % OI_STEP_MS, now + 2 * OI_STEP_MS, OI_STEP_MS)  # one beyond now: not closed
+            return [{"timestamp": t, "openInterestAmount": 1000.0 + i, "openInterestValue": None}
+                    for i, t in enumerate(times) if t >= since][:limit]
+
+    venue = Venue()
+    added = sync_open_interest(conn, venue, "XRP", "XRP/USDT:USDT", now)
+    assert added == 5 * 96 + 1  # five days of 15m snapshots, up to now
+    assert sync_open_interest(conn, venue, "XRP", "XRP/USDT:USDT", now) == 0  # nothing new
+    assert conn.execute("SELECT max(time) FROM open_interest").fetchone()[0] == now
+    venue.exchange.has = {}
+    assert sync_open_interest(conn, venue, "XRP", "XRP/USDT:USDT", now + OI_STEP_MS) == 0  # venue without OI history

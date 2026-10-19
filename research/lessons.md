@@ -71,3 +71,14 @@ The night hours (00-08 UTC) are weak only in the 2nd half of the history: cuttin
 
 ## 2026-10-19 · exit_opposite_signal · {"exit":{"opposite_signal":true}}
 Closing on the opposite Q-Trend trigger of the same chart cuts more winners than it saves losers: worse in both halves (+0.065R and +0.179R) and PF 1.41. A flip on the trading chart is mostly noise inside the trade; the fixed 1.5R target and swing stop stay better, as with be_1r.
+
+## 2026-10-19: liquidity ideas on past data (research/notes/2026-10-19-liquidity-plan.md)
+
+- **Liquidity pools in the way of the target** (previous day or 4 h range, equal highs/lows) do not separate good trades from bad ones in both halves. The prior range lies before the target in 97% of trades.
+- **Stop hunts are rare for this strategy:** only 9% of stop-outs swept back 0.5R inside within 30 minutes. Do not widen stops past liquidity pools.
+- **Open interest rising more than 1% in the 4 hours before a signal marks better trades.**
+  - Taken trades: +0.63R vs +0.22R.
+  - Skipped signals: +0.04R vs -0.22R.
+  - It holds in both halves of both samples. The effect is strongest on longs.
+  - Candidate for a quality tier, after an overlap check with the Trendline tier.
+- **OI flushes** (15m OI -1.5% with a 1% price move) are too rare to test. TradingView's `_OI` symbols match Binance's OI history (XRP and ETH closely, SOL loosely).

@@ -312,4 +312,19 @@ CREATE INDEX IF NOT EXISTS idx_trades_entry ON trades (book, entry_time);
 CREATE INDEX IF NOT EXISTS idx_trades_exit ON trades (book, exit_time);
 """,
     ),
+    (
+        14,
+        "open interest",
+        """
+-- The venue's 15m open interest snapshots (research 2026-10-19: trades after OI rose > 1% in 4 hours did better);
+-- the setup engine uses them for the quality tier. time = the moment of the snapshot (a 15m boundary), ms UTC.
+CREATE TABLE IF NOT EXISTS open_interest (
+    symbol TEXT NOT NULL,
+    time INTEGER NOT NULL,
+    amount REAL NOT NULL,                  -- open interest in coins (or contracts)
+    value REAL,                            -- the same in the quote currency, when the venue gives it
+    PRIMARY KEY (symbol, time)
+);
+""",
+    ),
 ]

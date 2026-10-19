@@ -208,6 +208,34 @@ def sync_funding(conn: sqlite3.Connection, client: Any, symbol: str, ccxt_symbol
     return added
 
 
+OI_STEP_MS = 15 * 60_000  # 15m open interest snapshots (the quality tier compares them 4 hours apart)
+OI_FIRST_DAYS = 5  # history fetched on the first sync (the venue keeps about 30 days)
+
+
+def sync_open_interest(conn: sqlite3.Connection, client: Any, symbol: str, ccxt_symbol: str, now: int) -> int:
+    """The venue's 15m open interest snapshots (time = the moment of the snapshot, a 15m boundary). Venues without
+    an open interest history return 0: their trades then get no OI quality flag."""
+    if not client.exchange.has.get("fetchOpenInterestHistory"):
+        return 0
+    newest = conn.execute("SELECT max(time) FROM open_interest WHERE symbol = ?", (symbol,)).fetchone()[0]
+    since = newest + OI_STEP_MS if newest is not None else now - OI_FIRST_DAYS * 86_400_000
+    added = 0
+    while since <= now:
+        rows = client.fetch_open_interest_history(ccxt_symbol, since=since, limit=500)
+        rows = [r for r in rows if r.get("timestamp") and since <= r["timestamp"] <= now and r.get("openInterestAmount")]
+        if not rows:
+            break
+        with conn:
+            conn.executemany("INSERT OR REPLACE INTO open_interest (symbol, time, amount, value) VALUES (?, ?, ?, ?)",
+                             [(symbol, int(r["timestamp"]), float(r["openInterestAmount"]),
+                               float(r["openInterestValue"]) if r.get("openInterestValue") else None) for r in rows])
+        added += len(rows)
+        since = int(rows[-1]["timestamp"]) + OI_STEP_MS
+        if len(rows) < 500:
+            break
+    return added
+
+
 def sync_market_info(conn: sqlite3.Connection, client: Any, symbols: dict[str, str]) -> None:
     """Tick size, order step, minimum order and contract size for every agent symbol (agent name -> market).
     Step and minimum are in the market's order unit: contracts on contract markets, coins otherwise;

@@ -12,7 +12,7 @@ Verified directly on TradingView Desktop (v3.4.1, Microsoft Store build) on 2026
 | AGENT-HTF | `BINANCE:XRPUSDT.P` 1h | `BINANCE:XRPUSDT.P` 4h | Trend | Symbol on, Interval off |
 
 - **Since 2026-10-18 the 15m chart of AGENT-XRP, AGENT-ETH and AGENT-SOL carries Dynamic Trendline Breakout [RFX] instead of ATP MACD** (catalog template `scalp15`).
-  - Its LONG/SHORT alert flags make a trade quality A, and the demo risks `paper_account.risk_tier_a` on those trades. See research/notes/2026-10-18.md.
+  - Its LONG/SHORT alert flags make a trade quality A, and the demo risks `paper_account.risk_tier_a` on those trades. See research/notes/2026-10-18.md. Since 2026-10-19 open interest rising more than 1% in 4 hours also makes a trade quality A; that OI comes from the venue, not from TradingView (research/notes/2026-10-19-liquidity-plan.md).
   - The 5m charts keep the Scalp template.
   - AGENT-HTF also shows Klinger on 1h and 4h; the agent does not read it yet.
   - Keep each AGENT layout open in one tab only. Two tabs of one layout save over each other: a stale copy removed the HTF Klinger once and made the signal version flip.

@@ -7,7 +7,8 @@ import sqlite3
 from typing import Any
 
 from tradeagent.config import Settings
-from tradeagent.market.candles import ensure_venue, repair_gaps, sync_candles, sync_funding, sync_market_info
+from tradeagent.market.candles import (ensure_venue, repair_gaps, sync_candles, sync_funding, sync_market_info,
+                                      sync_open_interest)
 
 log = logging.getLogger("tradeagent.market")
 
@@ -28,6 +29,10 @@ def sync_all(settings: Settings, conn: sqlite3.Connection, client: Any, now: int
             added += repair_gaps(conn, client, symbol, market, tf, now - GAP_CHECK_MS, now)
             counts[f"{symbol} {tf}"] = added
         counts[f"{symbol} funding"] = sync_funding(conn, client, symbol, market, now, days)
+        try:  # the OI quality flag is a convenience: a failure must not stop the candles
+            counts[f"{symbol} oi"] = sync_open_interest(conn, client, symbol, market, now)
+        except Exception as exc:
+            log.warning("open interest of %s not synced: %s", symbol, " ".join(str(exc).split())[:200])
     if with_info or conn.execute("SELECT count(*) FROM market_info").fetchone()[0] < len(settings.exchange.symbols):
         sync_market_info(conn, client, settings.markets())
     return counts

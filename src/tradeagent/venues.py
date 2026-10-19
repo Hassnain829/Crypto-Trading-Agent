@@ -112,6 +112,10 @@ class MarketData:
             return []
         return self.exchange.fetch_funding_rate_history(self.symbol(ref), since=since, limit=limit)
 
+    def fetch_open_interest_history(self, ref: str, since: int | None = None, limit: int = 500) -> list[dict[str, Any]]:
+        """15m open interest snapshots: [{timestamp, openInterestAmount, openInterestValue}, ...]."""
+        return self.exchange.fetch_open_interest_history(self.symbol(ref), "15m", since=since, limit=limit)
+
     def fetch_price(self, ref: str) -> float | None:
         """The last traded price now (for status messages; trades always use closed candles)."""
         price = self.exchange.fetch_ticker(self.symbol(ref)).get("last")

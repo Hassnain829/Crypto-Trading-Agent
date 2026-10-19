@@ -81,6 +81,7 @@ Tables are added by migrations when each phase designs them.
 | `snapshots` | Per coin / timeframe / closed candle: all indicator values, signal version, read latency | 1 ✓ |
 | `indicator_settings` | Indicator inputs for each signal version | 1 ✓ |
 | `candles`, `funding`, `market_info` | The trading venue's OHLCV (1m, 5m, 15m, 1h), funding rates, step sizes, minimum orders and contract sizes; one venue at a time (`engine_state` key `market:venue`) | 2 ✓, 4.5 ✓ |
+| `open_interest` | The venue's 15m open interest snapshots; with a 15m Trendline breakout, OI rising > 1% in 4 hours makes a trade quality A | 2026-10-19 ✓ |
 | `setups` | Trigger events and their evaluation per variant | 2 ✓ |
 | `trades` | Exploration book: variant, entry / stop / target, fills, fees, net R, MFE / MAE, status, reason, simulator state | 2 ✓ |
 | `variants` | Parameters, role (baseline / challenger / retired), parent | 2 ✓ |

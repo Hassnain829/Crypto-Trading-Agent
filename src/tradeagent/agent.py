@@ -123,7 +123,7 @@ class Agent:
         counts: Counter[str] = Counter()
         synced = sync_all(self.settings, self.conn, self.client, self.reader.clock.now_ms(),
                           backfill_pages=BACKFILL_PAGES)
-        counts["candles_added"] = sum(n for name, n in synced.items() if not name.endswith("funding"))
+        counts["candles_added"] = sum(n for name, n in synced.items() if not name.endswith(("funding", " oi")))
         counts.update(self.engine.process())
         counts.update(self.tracker.update())
         counts.update({f"paper_{name}": n for name, n in self.account.process().items()})
