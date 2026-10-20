@@ -8,7 +8,7 @@ from tradeagent.tv.schedule import closing_at, last_closed_bar, next_boundary
 def test_repo_catalog_loads_and_templates_split_indicators(repo_root):
     catalog = load_catalog(repo_root / "config" / "indicators.yaml")
     assert catalog.signal_version == 1
-    assert set(catalog.js_spec("scalp")) == {"qtrend", "klinger", "vwap", "zerolag", "atp_macd"}
+    assert set(catalog.js_spec("scalp")) == {"qtrend", "klinger", "squeeze", "zerolag", "atp_macd"}
     assert set(catalog.js_spec("trend")) == {"qtrend", "zerolag"}
     buy = next(f for f in catalog.js_spec("trend")["qtrend"]["fields"] if f["name"] == "buy")
     assert buy == {"name": "buy", "plot": "plot_19", "title": "Q-Trend BUY", "kind": "flag"}
@@ -57,6 +57,6 @@ def test_next_boundary_and_closing_timeframes():
 def test_the_15m_chart_reads_the_trendline_template(repo_root):
     catalog = load_catalog(repo_root / "config" / "indicators.yaml")
     assert catalog.chart_templates == {"15m": "scalp15"}
-    assert set(catalog.js_spec("scalp15")) == {"qtrend", "klinger", "vwap", "zerolag", "trendline"}
+    assert set(catalog.js_spec("scalp15")) == {"qtrend", "klinger", "squeeze", "zerolag", "trendline"}
     with pytest.raises(ValidationError, match="unknown template"):
         Catalog.model_validate({**catalog.model_dump(), "chart_templates": {"15m": "missing"}})

@@ -35,7 +35,6 @@ SPACE: dict[str, Knob] = {k.path: k for k in (
     Knob("confirmation.window", "number", "candles after the trigger in which confirmation may come", lo=0, hi=5, step=1),
     Knob("confirmation.klinger", "bool", "Klinger histogram must agree"),
     Knob("confirmation.candle_direction", "bool", "the confirming candle must close in the trade's direction"),
-    Knob("filters.vwap", "bool", "longs only above VWAP, shorts only below"),
     Knob("filters.macd_trend", "bool", "ATP MACD line on the trade's side of zero"),
     Knob("filters.htf", "choice", "higher-timeframe Zero Lag trend rule", choices=("none", "1h", "1h+4h", "against_4h")),
     Knob("filters.min_stop_pct", "number", "skip setups whose swing stop is closer than this %", lo=0, hi=3, step=0.25),

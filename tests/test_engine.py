@@ -438,3 +438,42 @@ def test_open_interest_is_synced_in_15m_snapshots(world):
     assert conn.execute("SELECT max(time) FROM open_interest").fetchone()[0] == now
     venue.exchange.has = {}
     assert sync_open_interest(conn, venue, "XRP", "XRP/USDT:USDT", now + OI_STEP_MS) == 0  # venue without OI history
+
+
+def _squeeze_snaps(conn, states, momentum):
+    """15m-free squeeze history on the trade's 5m chart: `states` for the candles up to the confirming one (i = 2)."""
+    confirm = T0 + 2 * M5
+    for k, state in enumerate(reversed(states)):
+        t = confirm - k * M5
+        row = conn.execute("SELECT values_json FROM snapshots WHERE symbol = 'XRP' AND timeframe = '5m' AND bar_time = ?",
+                           (t,)).fetchone()
+        values = json.loads(row[0]) if row else {}
+        values["squeeze"] = {"state": state, "momentum": momentum if k == 0 else -1.0}
+        if row:
+            conn.execute("UPDATE snapshots SET values_json = ? WHERE symbol = 'XRP' AND timeframe = '5m' AND bar_time = ?",
+                         (json.dumps(values), t))
+        else:
+            store_snapshot(conn, Snapshot("XRP", "5m", t, 1, t + M5, values=values, ohlcv=[100, 101, 99, 100, 1.0]))
+    conn.commit()
+
+
+def test_a_released_squeeze_with_momentum_is_recorded_on_the_trade(world):
+    conn, variants, settings = world
+    _snap(conn, 0, _values(buy=1, hist=-5.0))
+    _snap(conn, 1, _values(hist=-1.0))
+    _snap(conn, 2, _values(hist=2.0), close=100.4)
+    _squeeze_snaps(conn, [5, 5, 5, 5, 6, 6, 6], momentum=0.8)  # released 3 candles ago, momentum up for a long
+    SetupEngine(settings, variants, conn).process()
+    ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
+    assert ctx["sqz_fire"] is True and ctx["sqz_momentum"] == 0.8
+    assert ctx["quality"] == "B"  # recorded only: no effect on the size tier yet
+
+
+def test_no_release_or_missing_squeeze_values_are_recorded_as_such(world):
+    conn, variants, settings = world
+    _snap(conn, 0, _values(buy=1, hist=-5.0))
+    _snap(conn, 1, _values(hist=-1.0))
+    _snap(conn, 2, _values(hist=2.0), close=100.4)
+    SetupEngine(settings, variants, conn).process()  # no squeeze values on the chart yet
+    ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
+    assert ctx["sqz_fire"] is None and ctx["sqz_momentum"] is None

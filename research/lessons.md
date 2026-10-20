@@ -82,3 +82,59 @@ Closing on the opposite Q-Trend trigger of the same chart cuts more winners than
   - It holds in both halves of both samples. The effect is strongest on longs.
   - Candidate for a quality tier, after an overlap check with the Trendline tier.
 - **OI flushes** (15m OI -1.5% with a 1% price move) are too rare to test. TradingView's `_OI` symbols match Binance's OI history (XRP and ETH closely, SOL loosely).
+
+## 2026-10-19: fake signals (research/notes/2026-10-19-fake-signals-plan.md)
+
+- Of 1,593 Q-Trend triggers on XRP, SOL and ETH, the agent took 254 (53% won, +0.25R).
+  - The 1,015 confirmed signals it skipped for a stop under 1.5% won 37% (-0.19R). Those are the chart's "fake" signals.
+  - The confirmation and the minimum stop already remove most fakes.
+- Chop (signals in the last 48 candles), late entries (distance from the trend line), weak candle bodies, low volume and weak Klinger do not separate the taken losers from the winners in both halves. Do not propose them as filters.
+
+## 2026-10-19: more volatile coins (research/notes/2026-10-19-coin-screen.md)
+
+- Of ZEC, NEAR, 1000PEPE, ENA, INJ, TIA, ARB and TAO, none qualifies with the baseline rules.
+  - ZEC +0.075R is the best of them, and is positive in both halves. The others are negative.
+  - The current coins over the same windows: ETH +0.40R, SOL +0.32R, XRP +0.23R.
+- More volatility gives more trades but less follow-through: the target is hit 34–44% vs 46–51%. On these coins the 1.5% minimum stop no longer filters the chop.
+- Do not swap ETH: it is the best coin per trade.
+- The screen pipeline (research/tools/coin_screen.py) reproduces the live journal: XRP +0.20R vs +0.23R.
+
+## 2026-10-19: volatility-scaled minimum stop (research/notes/2026-10-19-vol-stop-plan.md)
+
+- A minimum stop of 1.5% × (the coin's 7-day median 15m range / 0.53%):
+  - ZEC rises from +0.075R to +0.211R (both halves positive, PF 1.41, target 49%), a near miss against the +0.231R bar.
+  - The other volatile coins end around 0 or below.
+- On XRP, SOL and ETH the scaled minimum drops to 0.7–1.0% and the edge disappears. Never go below the 1.5% floor; max(1.5%, scaled) is the untested form for volatile coins.
+- **Entry timing is not late.**
+  - Entries come at the 1m open after the signal candle closes, at practically the signal's close price.
+  - 83% of trades confirm on the trigger candle itself. The 42 that confirmed 1–3 candles later did better (+0.45 to +0.63R): a small sample and a new hypothesis.
+  - Winners take a median of 13.8 hours and first go about 0.34R against: the price of the 1.5% minimum stop.
+
+## 2026-10-20: ZEC with max(1.5%, scaled) stop; late confirmation (research/notes/2026-10-20-three-tests-plan.md)
+
+- With a minimum stop of max(1.5%, volatility-scaled), ZEC makes +0.202R (131 trades, PF 1.39, both halves positive), about XRP's level, but it misses the +0.231R bar. The other volatile coins stay around 0 or below.
+- A confirmation 1–3 candles after the trigger is not better out of sample: it is worse on the current coins' skipped signals. Do not propose it.
+
+## 2026-10-20: 1h engine (research/notes/2026-10-20-three-tests-plan.md)
+
+- The baseline rules on 1h charts (Q-Trend + Klinger, 404 days, 422 trades) make +0.002R with a 1.5R target and -0.020R with 1.0R. The recent half is negative on both. Do not propose a 1h engine with these rules.
+
+## 2026-10-20: high win rate, drawdown sizing, VWAP mean reversion (research/notes/2026-10-20-mr-and-drawdown-plan.md)
+
+- **Smaller targets raise the win rate and cut the return.** With a 0.25R target, 85% win and +22% over 116 days. With 1.5R, 53% win and +237%. The drawdown is about the same. Do not chase win rate.
+- **Halving the risk while 8% or more below the peak** cuts the drawdown by 14–25% but the return by 10–22%. No.
+- **VWAP #2 band mean reversion** (close back inside the band, target the VWAP, 2-candle stop): 2,510 trades on 11 coins, 35% won, -0.15R. Crypto band breaks continue rather than revert at 5m/15m.
+
+## 2026-10-20: Supertrend, WaveTrend, Squeeze, and two YouTube Supertrend strategies (research/notes/2026-10-20-supertrend-plan.md)
+
+- **Video 2's strategy** (Supertrend 12/3 + DEMA 200, exit on the opposite flip) on XRP, SOL, ETH, DOGE and LTC 15m: 818 trades, 25–32% won, about 0R. Its claim of 60% won and +130% does not hold. A Supertrend stop can sit on the entry (one trade was -1,540R): never trade without a minimum stop.
+- **Supertrend exits** (trail on the flip, or a runner after 1.5R) are 0.12–0.17R worse than the fixed 1.5R target on our trades.
+- **Supertrend direction adds nothing:** 95% of our trades already agree with it. The 15m Supertrend, a fresh flip and the DEMA 200 side gave no robust edge.
+- **Squeeze released in the trade's direction:** taken trades +0.40R vs +0.21R in both halves, and additive to tier A (both flags +0.66R). Not confirmed on the skipped signals. Record it forward before any size change.
+- **WaveTrend at oversold before a long** (or overbought before a short) is mildly worse in both samples.
+
+## 2026-10-20: signal version 6 replayed on the past charts (research/notes/2026-10-20-v6-backtest.md)
+
+- The whole agent on the v6 TradingView history of XRP, SOL and ETH (2026-07-13 to 10-18): 188 trades, 54% won, +0.285R, PF 1.63, positive in both halves and on every coin.
+  - Quality A: 66% won, +0.58R. Quality B: +0.13R.
+- The demo account with today's rules: $150 to $503 (+235%, max DD 16%), against +161% (DD 20%) with a flat 2%. These are in-sample numbers for the tiers.

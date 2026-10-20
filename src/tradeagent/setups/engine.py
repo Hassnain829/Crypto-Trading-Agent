@@ -33,6 +33,8 @@ M15_MS = 900_000
 QUALITY_BARS = 8  # a Trendline breakout in the last 8 closed 15m candles (2 hours) makes a trade quality A
 OI_RISE = 0.01  # ...and so does open interest up more than 1% over the 4 hours before the decision
 OI_WINDOW_MS = 4 * 3_600_000
+SQZ_ON, SQZ_OFF = 5, 6  # Squeeze Momentum [LazyBear] state codes (the colorer's palette values)
+SQZ_BARS = 6  # recorded, not used for sizing yet: a squeeze released in the last 6 candles (research 2026-10-20)
 
 
 def costs_from(settings: Settings) -> Costs:
@@ -204,6 +206,26 @@ class SetupEngine:
                                    (symbol, row["time"] - OI_WINDOW_MS)).fetchone()
         return row["amount"] / before[0] - 1 if before and before[0] else None
 
+    def _squeeze(self, symbol: str, tf: str, side: str, bar_time: int) -> tuple[bool | None, float | None]:
+        """(squeeze fired, momentum) on the trade's own chart at the confirming candle: True when a squeeze released
+        (state on -> off) within its last SQZ_BARS candles and the momentum points the trade's way. Research
+        2026-10-20: those taken trades made +0.40R against +0.21R (not confirmed on the skipped signals), so it is
+        recorded for the forward check only. None when the candles lack the squeeze values."""
+        step = tf_ms(tf)
+        rows = self.conn.execute(
+            "SELECT bar_time, values_json FROM snapshots WHERE symbol = ? AND timeframe = ? AND problems_json IS NULL"
+            " AND bar_time >= ? AND bar_time <= ? ORDER BY bar_time, signal_version",
+            (symbol, tf, bar_time - SQZ_BARS * step, bar_time),
+        ).fetchall()
+        by_time = {r["bar_time"]: (json.loads(r["values_json"]).get("squeeze") or {}) for r in rows}
+        bars = [by_time.get(bar_time - k * step) for k in range(SQZ_BARS, -1, -1)]
+        if any(b is None or b.get("state") is None for b in bars) or bars[-1].get("momentum") is None:
+            return None, None
+        momentum = bars[-1]["momentum"]
+        released = any(bars[k - 1]["state"] == SQZ_ON and bars[k]["state"] == SQZ_OFF for k in range(1, len(bars)))
+        sign = 1 if side == "long" else -1
+        return released and sign * momentum > 0, momentum
+
     def _quality(self, symbol: str, side: str, at: int) -> tuple[str, str | None, float | None]:
         """Quality tier of a trade decided at `at`, its reason, and the 4-hour open interest change. "A" when either
         - the 15m chart showed a same-direction Trendline breakout in the last QUALITY_BARS closed candles
@@ -317,6 +339,7 @@ class SetupEngine:
         if mode == "htf_rule":
             mode = "hybrid" if htf["1h"] == trend and htf["4h"] == trend else "fixed"
         quality, quality_reason, oi_change = self._quality(symbol, side, order_time)
+        sqz_fire, sqz_momentum = self._squeeze(symbol, tf, side, row["bar_time"])
         context = {
             "values": values,
             "candle": [row["open"], row["high"], row["low"], row["close"]],
@@ -327,6 +350,8 @@ class SetupEngine:
             "quality": quality,  # A = a 15m Trendline breakout or rising open interest; the account may risk more on it
             "quality_reason": quality_reason,
             "oi_change_4h": oi_change,  # recorded on every trade, for the forward check of the OI flag
+            "sqz_fire": sqz_fire,  # recorded for the forward check (2026-10-20); not used for sizing yet
+            "sqz_momentum": sqz_momentum,
         }
         if problems:
             status, taken, reason, state, target = "invalid", 0, "; ".join(problems), {}, None

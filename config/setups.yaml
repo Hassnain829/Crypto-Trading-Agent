@@ -56,10 +56,11 @@ variants:
 
   # One change each. Retired 2026-10-04 (worse than the baseline on the history): min_stop_1pct,
   # min_stop_2pct, confirm_0, stop_1h_swing, trigger_strong.
+  # filter_vwap was retired on 2026-10-20: +0.172R on 36 forward trades against the baseline's +0.346R, and the
+  # Squeeze Momentum study replaced VWAP on the AGENT charts (TradingView Essential allows 5 studies a chart).
   market_entry:     {entry: {mode: market}}               # what the limit entry is worth on fresh data
   session_13_21:    {filters: {session_utc: [13, 21]}}    # US session, 18:00-02:00 Pakistan time (strongest candidate)
   session_07_21:    {filters: {session_utc: [7, 21]}}     # Europe + US, 12:00-02:00 Pakistan time
   htf_against_4h:   {filters: {htf: against_4h}}
   tf_15m:           {timeframes: ["15m"]}
-  filter_vwap:      {filters: {vwap: true}}
   trend15:          {filters: {trend_15m: true}}          # 5m signals only with the 15m trend (research 2026-10-04: +0.276R on XRP SOL ETH, steadiest)

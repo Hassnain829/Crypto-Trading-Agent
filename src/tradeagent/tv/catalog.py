@@ -15,7 +15,7 @@ class _Strict(BaseModel):
 
 class FieldSpec(_Strict):
     plot: str = Field(pattern=r"^plot_\d+$")
-    title: str
+    title: str | None  # None only for plots without a style title, such as a colorer (the reader then checks None)
     kind: Literal["value", "flag"]
 
 

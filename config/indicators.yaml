@@ -55,6 +55,12 @@ indicators:
       bullish_divergence: {plot: plot_22, title: "MACD Bullish Divergence", kind: flag}   # confirmed 5 bars late
       bearish_divergence: {plot: plot_23, title: "MACD Bearish Divergence", kind: flag}
 
+  squeeze:  # Squeeze Momentum Indicator [LazyBear] (PUB;175): replaced VWAP on the AGENT 5m/15m charts on 2026-10-20
+    study: "Squeeze Momentum Indicator [LazyBear]"
+    fields:
+      momentum: {plot: plot_0, title: "Plot", kind: value}   # the histogram: > 0 bullish, < 0 bearish
+      state:    {plot: plot_3, title: null,   kind: value}   # colorer code: 5 = squeeze on (Bollinger inside Keltner), 6 = off
+
   trendline:  # Dynamic Trendline Breakout [RFX] (closed-source; repaint test passed 2026-10-18, research/notes)
     study: "Dynamic Trendline Breakout [RFX]"
     fields:
@@ -63,8 +69,8 @@ indicators:
 
 # Which indicators each chart template carries.
 templates:
-  scalp: [qtrend, klinger, vwap, zerolag, atp_macd]     # trading timeframes (5m)
-  scalp15: [qtrend, klinger, vwap, zerolag, trendline]  # 15m: Trendline replaced ATP MACD on 2026-10-18 (quality tier)
+  scalp: [qtrend, klinger, squeeze, zerolag, atp_macd]     # trading timeframes (5m); squeeze replaced VWAP on 2026-10-20
+  scalp15: [qtrend, klinger, squeeze, zerolag, trendline]  # 15m: Trendline replaced ATP MACD on 2026-10-18, squeeze VWAP on 2026-10-20
   trend: [qtrend, zerolag]                              # overview timeframes (1h, 4h)
 
 # Templates of specific chart timeframes; the others use scalp (trading) or trend (overview).

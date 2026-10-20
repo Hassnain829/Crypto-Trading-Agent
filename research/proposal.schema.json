@@ -47,7 +47,6 @@
                   "confirmation.window",
                   "confirmation.klinger",
                   "confirmation.candle_direction",
-                  "filters.vwap",
                   "filters.macd_trend",
                   "filters.htf",
                   "filters.min_stop_pct",
