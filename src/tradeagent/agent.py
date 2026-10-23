@@ -104,6 +104,13 @@ class Agent:
         if waiting and (self._screen is None or self._screen.poll() is not None):
             self._screen = runner.spawn_screen(self.settings)
             log.info("history screen started for %d proposal(s)", waiting)
+        elif self._screen is None or self._screen.poll() is not None:
+            # The leaderboard: active variants replayed on the long research history (one job at a time).
+            from tradeagent.learning.long_screen import missing, source
+
+            if source(self.settings) is not None and missing(self.conn, self.variants):
+                self._screen = runner.spawn_long_backtest(self.settings)
+                log.info("long-history backtest started for %d variant(s)", len(missing(self.conn, self.variants)))
         research = self.settings.research
         if time.strftime("%H:%M", time.gmtime()) >= research.daily_time_utc and not written_today(self.settings):
             path = write_pack(self.settings, self.conn, self.variants)

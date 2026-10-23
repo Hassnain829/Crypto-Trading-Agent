@@ -1,0 +1,26 @@
+{
+  "summary": "Research run 2026-10-21 on baseline v0-773ea9 (history 255 trades, +0.259R, PF 1.56, max DD 11.1R; forward 44 trades, +0.372R, PF 1.86). No experiment was decided since the last run. None of the 8 running challengers is broken: short_strong_sell and dip15 show no closed trades, but so does the baseline over their period (dip15 started today, short_strong_sell after the v6 switch). Hours, sides, targets, break-even, confirmation, lookback, stop floor and limit time are already covered, so this run looked at the one stop rule never tested: stop.multiplier, which moves the stop but keeps the 1.5R target on the chart's swing. experiment try with 0.8 gave +0.297R vs +0.259R, better in both halves (+0.224R vs +0.198R, +0.370R vs +0.320R), the same PF 1.56 and DD 13.2R vs 11.1R (+19%), failing only the 0.05R edge. 0.75 (the bottom of the range) is proposed to see whether it clears the bar, and 0.8 is recorded so it is not tried again.",
+  "proposals": [
+    {
+      "name": "stop_mult_075",
+      "change": {
+        "path": "stop.multiplier",
+        "value": 0.75
+      },
+      "hypothesis": "Winners first go a median of only 0.34R against (lesson 2026-10-19), and the pack shows 110 stops at -1.042R against 119 targets at +1.478R. A stop at 0.75 of the swing distance with the same target price makes each win about 2.0R of the real risk while cutting few winners. experiment try at 0.8 already gave +0.297R vs +0.259R, better in both halves with the same PF 1.56, missing only the 0.05R edge.",
+      "expected": "About +0.30 to +0.32R over the same 255 trades, both halves better; the risk is the max drawdown (0.8 gave 13.2R vs 11.1R, near the 25% limit) and a higher cost per R on the tighter stop.",
+      "confidence": 0.3
+    },
+    {
+      "name": "stop_mult_080",
+      "change": {
+        "path": "stop.multiplier",
+        "value": 0.8
+      },
+      "hypothesis": "Same idea as stop_mult_075 at 0.8 of the swing distance. Recorded so it is never retried: experiment try gave +0.297R vs +0.259R (half 1 +0.224R vs +0.198R, half 2 +0.370R vs +0.320R), PF 1.56 vs 1.56, DD 13.2R vs 11.1R.",
+      "expected": "Fails only the min_edge_r rule (+0.038R, needs +0.05R).",
+      "confidence": 0.05
+    }
+  ],
+  "lessons": []
+}

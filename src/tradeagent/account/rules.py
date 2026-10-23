@@ -48,10 +48,11 @@ def risk_for(rules: PaperAccountConfig, quality: str | None) -> float:
 
 def size_position(
     balance: float, entry: float, stop: float, rules: PaperAccountConfig, limits: MarketLimits, used_margin: float = 0.0,
-    quality: str | None = None, open_risk: float = 0.0,
+    quality: str | None = None, open_risk: float = 0.0, peak_balance: float | None = None,
 ) -> Sizing | str:
     """Quantity for the trade's risk share (risk_for) of the balance, then the open-risk budget, the leverage cap and
-    the free margin, then rounding.
+    the free margin, then rounding. With a drawdown brake, the risk is brake_factor times smaller while the balance
+    is drawdown_brake or more below `peak_balance`.
 
     Open-risk budget (max_open_risk): the open positions together may lose at most this share of the balance at
     their stops. A trade that would go over it is made smaller to fit, not skipped; only a used-up budget skips.
@@ -65,6 +66,9 @@ def size_position(
     risk = risk_for(rules, quality)
     if risk != rules.risk_per_trade:
         notes.append(f"quality {quality}: {risk:.1%} risk")
+    if rules.drawdown_brake is not None and peak_balance and balance < peak_balance * (1 - rules.drawdown_brake):
+        risk *= rules.brake_factor
+        notes.append(f"drawdown brake: {risk:.1%} risk while the balance is {1 - balance / peak_balance:.0%} below its peak")
     qty = risk * balance / distance
     if rules.max_open_risk is not None:
         budget = rules.max_open_risk * balance - open_risk
@@ -106,6 +110,7 @@ def check_entry(
     day_start_balance: float,
     rules: PaperAccountConfig,
     kill_switch: str,
+    side: str | None = None,
 ) -> str | None:
     """Why a new position may not be opened right now (None = allowed)."""
     if kill_switch != "off":
@@ -113,10 +118,14 @@ def check_entry(
     stop = rules.daily_loss_stop
     if stop is not None and day_start_balance > 0 and (day_start_balance - balance) >= stop * day_start_balance:
         return f"daily loss stop ({stop:.0%} of the day's starting balance) reached"
+    on_coin = [p for p in open_positions if p.symbol == symbol]
+    if not rules.allow_opposite and side is not None and any(p.side != side for p in on_coin):
+        return f"{symbol} has an open {on_coin[0].side}: opposite signals are skipped"
     per_coin = rules.max_positions_per_coin
-    if per_coin is not None and sum(1 for p in open_positions if p.symbol == symbol) >= per_coin:
+    if per_coin is not None and len(on_coin) >= per_coin:
         return f"{symbol} already has an open position" if per_coin == 1 else f"max {per_coin} open positions on {symbol}"
-    if rules.max_positions is not None and len(open_positions) >= rules.max_positions:
+    if rules.max_positions is not None and len(open_positions) >= rules.max_positions \
+            and not (rules.first_position_always and not on_coin):
         return f"max {rules.max_positions} open positions"
     return None
 

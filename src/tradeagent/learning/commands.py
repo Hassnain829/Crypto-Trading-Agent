@@ -126,7 +126,7 @@ def experiment_propose(source: str, origin: str, screen: bool) -> int:
         if added and screen and settings.learning.screen_on_history:
             print(f"Screening {len(added)} proposal(s) on the stored history in one replay (a few minutes)...",
                   flush=True)
-            for line in screen_pending(settings, conn, added):
+            for line in screen_pending(settings, conn, added, long_stage=False):  # the long stage runs in the background
                 print(f"  {line}")
         elif added and settings.learning.screen_on_history:
             print("Not screened yet: the agent screens waiting proposals within the hour (or: experiment screen).")
@@ -165,6 +165,27 @@ def experiment_screen(ids: list[int] | None) -> int:
     with _open() as (settings, conn, _):
         lines = screen_pending(settings, conn, ids)
     print("\n".join(lines) or "no proposal is waiting for its history screen")
+    return 0
+
+
+def experiment_long_backtest(everything: bool, resume: bool = False) -> int:
+    """Replay the active variants on the long research history for the leaderboard (only those without a result,
+    unless --all; --resume continues an interrupted replay of the same variants)."""
+    from tradeagent.learning.long_screen import backtest, missing, source
+
+    _low_priority()
+    with _open() as (settings, conn, variants):
+        if source(settings) is None:
+            print(f"no long research history at {settings.learning.long_history}")
+            return 2
+        todo = variants if everything else missing(conn, variants)
+        if not todo:
+            print("every active variant has a long-history result")
+            return 0
+        print(f"Replaying {len(todo)} variant(s) on the long history{' (resuming)' if resume else ''}; on the VPS this"
+              " takes hours...", flush=True)
+        for line in backtest(settings, conn, todo, resume):
+            print(f"  {line}")
     return 0
 
 

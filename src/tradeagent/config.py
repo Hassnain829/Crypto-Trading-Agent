@@ -107,6 +107,9 @@ class TradingViewConfig(_Section):
 class MarketDataConfig(_Section):
     history_days: int = Field(default=35, ge=1, le=365)
     candle_timeframes: list[str] = Field(default_factory=lambda: ["1m", "5m", "15m"])
+    # Reference markets synced as 5m candles only (on Binance USDT-M): BTC's moves, for filters.btc_shock_wait_minutes.
+    reference_markets: dict[str, str] = Field(default_factory=lambda: {"BTC": "BTC/USDT:USDT"})
+    fear_greed: bool = True  # sync the daily Fear & Greed Index (alternative.me), for filters.fear_greed_extremes
 
     @field_validator("candle_timeframes")
     @classmethod
@@ -146,6 +149,15 @@ class PaperAccountConfig(_Section):
     leverage_cap: float = Field(ge=1, le=50)
     # Coins the account trades; None = every coin. The shadow book keeps testing every coin either way.
     symbols: list[str] | None = None
+    # False: a signal against a coin's open position is skipped, so a coin never holds a long and a short together.
+    allow_opposite: bool = True
+    # True: max_positions never blocks a coin's first position (every coin can always hold one).
+    first_position_always: bool = False
+    # Drawdown brake: while the balance is this share below its highest balance, every trade risks brake_factor
+    # times its normal risk; back to normal at a new high. None = off. Research 2026-10-21: at 10% and half the risk,
+    # the 4-year drawdown fell from 62% to 42% and the return halved.
+    drawdown_brake: float | None = Field(default=None, gt=0, le=0.5)
+    brake_factor: float = Field(default=0.5, gt=0, le=1)
 
     @model_validator(mode="after")
     def _per_coin_within_total(self) -> PaperAccountConfig:
@@ -187,6 +199,14 @@ class LearningConfig(_Section):
     max_challengers: int = Field(default=15, ge=1, le=40)
     auto_promote: bool = True  # a confirmed winner becomes the demo baseline by itself (live always needs approval)
     screen_on_history: bool = True  # proposals must first beat the baseline in both halves of the history
+    # ...and then in both halves of the long research history (years of Binance candles with research-only indicator
+    # values, learning/long_screen.py), when that journal exists. A short history cannot tell a good rule from a
+    # lucky period (2026-10-21: the forward leaders session_07_21/13_21 made about 0R over 4 years).
+    screen_on_long_history: bool = True
+    long_history: str | None = "data/research/long4/journal.db"
+    long_history_years: int | None = Field(default=3, ge=1, le=10)  # only the newest N years of it (None = all)
+    # Coins of the leaderboard's long backtest (None = the demo's coins). Proposals are always judged on the demo's coins.
+    long_backtest_coins: list[str] | None = Field(default_factory=lambda: ["XRP", "SOL", "ETH", "BTC"])
 
 
 class AlertsConfig(_Section):

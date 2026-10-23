@@ -84,6 +84,9 @@ def main(argv: list[str] | None = None) -> int:
     et.add_argument("value", help="a JSON value, e.g. 1.25, true, \"15m\" or [13,21]")
     es = exp_cmd.add_parser("screen", help="screen the proposals waiting for their history replay")
     es.add_argument("--id", type=int, action="append")
+    elb = exp_cmd.add_parser("long-backtest", help="replay the active variants on the long research history (leaderboard)")
+    elb.add_argument("--all", action="store_true", help="also the variants that already have a result")
+    elb.add_argument("--resume", action="store_true", help="continue an interrupted replay of the same variants")
     exp_cmd.add_parser("evaluate", help="judge the running experiments now (the agent does this every hour)")
     ex_stop = exp_cmd.add_parser("stop", help="stop an experiment")
     ex_stop.add_argument("id", type=int)
@@ -153,6 +156,7 @@ def main(argv: list[str] | None = None) -> int:
             "propose": lambda: learning.experiment_propose(args.file, args.source, not args.no_screen),
             "try": lambda: learning.experiment_try(args.path, args.value),
             "screen": lambda: learning.experiment_screen(args.id),
+            "long-backtest": lambda: learning.experiment_long_backtest(args.all, args.resume),
             "evaluate": learning.experiment_evaluate,
             "stop": lambda: learning.experiment_stop(args.id, args.reason),
             "lesson": lambda: learning.experiment_lesson(args.id, args.text),

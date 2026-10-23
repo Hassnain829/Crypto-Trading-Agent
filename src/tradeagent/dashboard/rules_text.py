@@ -10,6 +10,7 @@ INDICATORS = {"qtrend": "Q-Trend", "zerolag": "Zero Lag", "atp_macd": "ATP MACD"
 def describe(p: dict[str, Any]) -> list[tuple[str, str]]:
     t, c, f, s, x = p["trigger"], p["confirmation"], p["filters"], p["stop"], p["exit"]
     entry = (p.get("entry") or {}).get("mode", "market")
+    dip = (p.get("entry") or {}).get("dip_5m_minutes") or 0
     confirm = []
     if c.get("klinger"):
         confirm.append("Klinger histogram in the trade's direction")
@@ -28,6 +29,11 @@ def describe(p: dict[str, Any]) -> list[tuple[str, str]]:
         filters.append("ATP MACD line on the trade's side of zero")
     if f.get("zl_own"):
         filters.append("the chart's own Zero Lag trend must agree")
+    if f.get("btc_shock_wait_minutes"):
+        filters.append(f"no entry for {f['btc_shock_wait_minutes']} min after BTC moved {f.get('btc_shock_pct', 2):g}%+ in 5m")
+    if f.get("fear_greed_extremes"):
+        lo, hi = f["fear_greed_extremes"]
+        filters.append(f"no entry when the Fear & Greed Index is below {lo} or above {hi}")
     htf = f.get("htf", "none")
     if htf == "against_4h":
         filters.append("only against the 4h Zero Lag trend")
@@ -56,8 +62,10 @@ def describe(p: dict[str, Any]) -> list[tuple[str, str]]:
         ("Signal", f"{INDICATORS.get(t['indicator'], t['indicator'])} {t['long']} → long, {t['short']} → short"),
         ("Confirmation", f"{' and '.join(confirm) or 'none'}, {window}"),
         ("Filters", "; ".join(filters) or "none"),
-        ("Entry", "limit order at the next 1m open; it fills only if the price trades through it within that minute"
-         if entry == "limit" else "market order at the next 1m open"),
+        ("Entry", (f"after the first 5m candle that closes against the trade (at most {dip} minutes), " if dip else "")
+         + ("limit order at the next 1m open; it fills only if the price trades through it within that minute"
+            if entry == "limit" else "market order at the next 1m open")
+         + ("; the planned stop and target stay" if dip else "")),
         ("Stop", stop),
         ("Exit", exit_text + ("; " + "; ".join(extras) if extras else "") + "; 72h time limit"),
     ]

@@ -78,12 +78,48 @@ def history_compare(settings: Settings, conn: sqlite3.Connection, changes: dict[
         copy.close()
 
 
-def screen_pending(settings: Settings, conn: sqlite3.Connection, ids: list[int] | None = None) -> list[str]:
-    """Screen the experiments waiting in 'screening' (or these ids) in one replay; record each verdict."""
-    query = "SELECT id, name, change_json FROM experiments WHERE status = 'screening'"
+def long_screen_on(settings: Settings) -> bool:
+    from tradeagent.learning.long_screen import source
+
+    return settings.learning.screen_on_long_history and source(settings) is not None
+
+
+def screen_pending(settings: Settings, conn: sqlite3.Connection, ids: list[int] | None = None,
+                   long_stage: bool = True) -> list[str]:
+    """Screen the experiments waiting in 'screening' (or these ids) and record each verdict.
+
+    Stage 1 replays the stored history (minutes). With the long screen on, a pass there keeps the experiment in
+    'screening' with its history result, and stage 2 (`long_stage`, about an hour, run by the agent's background
+    job) replays the long research history; only a pass in both starts the forward test."""
+    query = "SELECT id, name, change_json, screen_json FROM experiments WHERE status = 'screening'"
     rows = conn.execute(query + (f" AND id IN ({','.join('?' * len(ids))})" if ids else "") + " ORDER BY id",
                         tuple(ids or ())).fetchall()
     if not rows:
         return []
-    results = history_compare(settings, conn, {r["name"]: json.loads(r["change_json"]) for r in rows})
-    return [f"{r['name']}: {ex.finish_screen(conn, settings, r['id'], results[r['name']])}" for r in rows]
+    lines = []
+    two_stage = long_screen_on(settings)
+    first = [r for r in rows if not (json.loads(r["screen_json"] or "{}")).get("history_passed")]
+    if first:
+        results = history_compare(settings, conn, {r["name"]: json.loads(r["change_json"]) for r in first})
+        for r in first:
+            result = results[r["name"]]
+            if result["passed"] and two_stage:
+                ex.record_history_pass(conn, r["id"], result)
+                lines.append(f"{r['name']}: passed the history screen; the 4-year screen follows in the background")
+            else:
+                lines.append(f"{r['name']}: {ex.finish_screen(conn, settings, r['id'], result)}")
+    if long_stage and two_stage:
+        from tradeagent.learning.long_screen import compare
+
+        waiting = conn.execute(query + " ORDER BY id").fetchall()
+        second = [r for r in waiting if (json.loads(r["screen_json"] or "{}")).get("history_passed")
+                  and (not ids or r["id"] in ids)]
+        if second:
+            longs = compare(settings, conn, {r["name"]: json.loads(r["change_json"]) for r in second})
+            for r in second:
+                history, long = json.loads(r["screen_json"]), longs[r["name"]]
+                combined = {**history, "long": long, "passed": long["passed"],
+                            "why": f"4 years: {long['why']}" if not long["passed"] else
+                                   f"{history['why']}; 4 years: {long['why']}"}
+                lines.append(f"{r['name']}: {ex.finish_screen(conn, settings, r['id'], combined)}")
+    return lines

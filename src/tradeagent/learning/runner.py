@@ -52,6 +52,10 @@ def spawn_screen(settings: Settings) -> subprocess.Popen:
     return spawn(settings, [sys.executable, "-m", "tradeagent", "experiment", "screen"], "learning.log")
 
 
+def spawn_long_backtest(settings: Settings) -> subprocess.Popen:
+    return spawn(settings, [sys.executable, "-m", "tradeagent", "experiment", "long-backtest"], "learning.log")
+
+
 def claude_command() -> str | None:
     """The claude CLI: on the PATH, or where the native installer puts it (a long-running agent may have been
     started before the installer added that folder to the PATH)."""

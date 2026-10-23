@@ -477,3 +477,147 @@ def test_no_release_or_missing_squeeze_values_are_recorded_as_such(world):
     SetupEngine(settings, variants, conn).process()  # no squeeze values on the chart yet
     ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
     assert ctx["sqz_fire"] is None and ctx["sqz_momentum"] is None
+
+
+# ---- dip entry (entry.dip_5m_minutes; research 2026-10-21) -------------------------------------------------------
+def _dip_variant(minutes=60):
+    return _variant("dip", {"entry": {"mode": "limit", "dip_5m_minutes": minutes}}, role="baseline")
+
+
+def test_a_dip_entry_waits_for_the_first_5m_candle_against_the_trade(world):
+    conn, variants, settings = world
+    dip = _dip_variant()
+    register_variants(conn, [dip])
+    # the signal candle (i=0) closes at T0+5m; the 5m candles after it are bullish until the one at T0+15m (bearish)
+    conn.execute("UPDATE candles SET close = 99.95 WHERE timeframe = '5m' AND open_time = ?", (T0 + 3 * M5,))
+    conn.execute("UPDATE candles SET open = 100.05 WHERE timeframe = '1m' AND open_time = ?", (T0 + 4 * M5,))
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, [dip], conn).process()
+    t = conn.execute("SELECT * FROM trades").fetchone()
+    swing = min(99.0 + 0.01 * (i % 7) for i in range(-7, 3))
+    assert t["status"] == "open" and t["entry_time"] == T0 + 4 * M5  # the open after the bearish 5m candle
+    assert t["entry_ref"] == pytest.approx(100.05)
+    assert t["target"] == pytest.approx(100.1 + 1.5 * (100.1 - swing))  # the planned target, not 1.5R from the fill
+    assert t["stop_initial"] == pytest.approx(swing)
+    assert json.loads(t["context_json"])["dip_entry"] == {"minutes": 15, "dip_found": True, "missed": None}
+
+
+def test_without_a_dip_the_entry_comes_at_the_end_of_the_wait(world):
+    conn, variants, settings = world
+    dip = _dip_variant(15)
+    register_variants(conn, [dip])
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)  # every 5m candle is bullish: no dip
+    SetupEngine(settings, [dip], conn).process()
+    t = conn.execute("SELECT * FROM trades").fetchone()
+    assert t["status"] == "open" and t["entry_time"] == T0 + M5 + 15 * M1
+    assert json.loads(t["context_json"])["dip_entry"]["dip_found"] is False
+
+
+def test_a_setup_that_reaches_its_stop_while_waiting_is_not_entered(world):
+    conn, variants, settings = world
+    dip = _dip_variant(30)
+    register_variants(conn, [dip])
+    conn.execute("UPDATE candles SET low = 98.0 WHERE timeframe = '1m' AND open_time = ?", (T0 + M5 + 7 * M1,))
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, [dip], conn).process()
+    t = conn.execute("SELECT * FROM trades").fetchone()
+    assert t["status"] == "missed" and "stop reached before the dip entry" in t["reason"]
+    assert t["taken"] == 1  # the rules took it; it was just never entered (like an unfilled limit)
+
+
+def test_the_engine_waits_until_a_dip_entry_is_known(world):
+    conn, variants, settings = world
+    dip = _dip_variant(60)
+    register_variants(conn, [dip])
+    _snap(conn, 10, _values(buy=1, hist=2.0), close=100.4)  # decided at T0+55m; the 5m candles end at T0+75m
+    counts = SetupEngine(settings, [dip], conn).process()
+    assert counts["candles"] == 0 and conn.execute("SELECT count(*) FROM trades").fetchone()[0] == 0
+    conn.execute("UPDATE candles SET close = 99.95 WHERE timeframe = '5m' AND open_time = ?", (T0 + 12 * M5,))
+    conn.commit()
+    SetupEngine(settings, [dip], conn).process()  # the dip at T0+60m is now known: entry at T0+65m
+    t = conn.execute("SELECT * FROM trades").fetchone()
+    assert t["status"] == "open" and t["entry_time"] == T0 + 13 * M5
+
+
+def test_a_waiting_dip_variant_does_not_hold_up_the_other_variants(world):
+    conn, variants, settings = world
+    dip = _dip_variant(60)
+    register_variants(conn, variants + [dip])
+    _snap(conn, 10, _values(buy=1, hist=2.0), close=100.4)  # the dip variant must wait; v0 enters at once
+    SetupEngine(settings, variants + [dip], conn).process()
+    names = {r[0].split("-")[0] for r in conn.execute("SELECT variant_id FROM trades")}
+    assert "v0" in names and "dip" not in names
+    progress = dict(conn.execute("SELECT key, value FROM engine_state").fetchall())
+    assert int(progress["engine:XRP:5m"]) == T0 + 10 * M5 and int(progress.get("engine:XRP:5m:dip", 0)) < T0 + 10 * M5
+
+
+def test_snapshots_are_read_in_batches_without_skipping_any(world, monkeypatch):
+    import tradeagent.setups.engine as engine_module
+
+    conn, variants, settings = world
+    monkeypatch.setattr(engine_module, "BATCH", 2)
+    _snap(conn, 0, _values(buy=1, hist=-5.0))
+    for i in range(1, 5):
+        _snap(conn, i, _values(hist=-1.0))
+    _snap(conn, 5, _values(hist=2.0), close=100.4)  # too late for the first trigger (window 3): it expired
+    _snap(conn, 6, _values(buy=1, hist=2.0), close=100.4)  # a new trigger that confirms on its own candle
+    counts = SetupEngine(settings, variants, conn).process()
+    assert counts["candles"] == 7  # every candle once, across four batches
+    assert conn.execute("SELECT max(value) FROM engine_state WHERE key = 'engine:XRP:5m'").fetchone()[0] == str(T0 + 6 * M5)
+    assert conn.execute("SELECT count(*) FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0] == 1
+
+
+def test_a_signal_right_after_a_btc_shock_is_skipped_and_the_move_is_recorded(world):
+    conn, variants, settings = world
+    shock = _variant("shock", {"filters": {"btc_shock_wait_minutes": 60}}, role="baseline")
+    register_variants(conn, [shock])
+    decision = T0 + M5  # the confirming candle (i=0) closes here
+    conn.executemany("INSERT INTO candles VALUES ('BTC', '5m', ?, ?, ?, ?, ?, 1.0)", [
+        (decision - 40 * M1, 100.0, 103.0, 99.5, 102.5),  # +2.5% in one 5m candle, 40 minutes before
+        (decision - 10 * M1, 102.5, 102.8, 102.3, 102.6)])
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, [shock], conn).process()
+    t = conn.execute("SELECT taken, reason, context_json FROM trades").fetchone()
+    assert (t["taken"], t["reason"]) == (0, "btc_shock")
+    assert json.loads(t["context_json"])["btc_move_5m"] == pytest.approx(0.025)
+
+
+def test_a_signal_in_a_fear_and_greed_extreme_is_skipped(world):
+    conn, variants, settings = world
+    fg = _variant("fg", {"filters": {"fear_greed_extremes": [20, 80]}}, role="baseline")
+    register_variants(conn, [fg])
+    day = (T0 // 86_400_000) * 86_400_000
+    conn.execute("INSERT INTO fear_greed (time, value, classification) VALUES (?, 85, 'Extreme Greed')", (day,))
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, [fg], conn).process()
+    t = conn.execute("SELECT taken, reason, context_json FROM trades").fetchone()
+    assert (t["taken"], t["reason"]) == (0, "fear_greed") and json.loads(t["context_json"])["fear_greed"] == 85
+    conn.execute("DELETE FROM trades")
+    conn.execute("DELETE FROM setups")
+    conn.execute("DELETE FROM engine_state")
+    conn.execute("UPDATE fear_greed SET value = 50")
+    SetupEngine(settings, [fg], conn).process()
+    assert conn.execute("SELECT taken FROM trades").fetchone()[0] == 1
+
+
+def test_news_filter_options_are_checked_and_keep_old_variant_ids():
+    from pydantic import ValidationError
+
+    from tradeagent.market.fear_greed import parse
+
+    assert _variant("v0", {"filters": {"btc_shock_wait_minutes": 0, "fear_greed_extremes": None}}).id == _variant("v0").id
+    with pytest.raises(ValidationError):
+        _variant("v0", {"filters": {"fear_greed_extremes": [80, 20]}})
+    rows = parse('{"data": [{"value": "25", "value_classification": "Extreme Fear", "timestamp": "1760918400"}]}')
+    assert rows == [(1_760_918_400_000, 25, "Extreme Fear")]
+
+
+def test_dip_entry_options_are_checked_and_keep_old_variant_ids():
+    from pydantic import ValidationError
+
+    assert _variant("v0", {"entry": {"dip_5m_minutes": 0}}).id == _variant("v0").id
+    assert _variant("v0", {"entry": {"dip_5m_minutes": 60}}).id != _variant("v0").id
+    with pytest.raises(ValidationError):
+        _variant("v0", {"entry": {"dip_5m_minutes": 7}})
+    with pytest.raises(ValidationError):
+        _variant("v0", {"entry": {"mode": "limit", "dip_5m_minutes": 60, "offset_r": 0.3}})

@@ -31,4 +31,6 @@ def settings(tmp_path: Path) -> Settings:
     loaded.paper_account.symbols = None
     loaded.live_account.symbols = None
     loaded.alerts.enabled = False  # tests never send phone messages, even when .env has NTFY_TOPIC
+    loaded.market_data.fear_greed = False  # no calls to the outside index from tests
+    loaded.market_data.reference_markets = {}  # fake clients know only the test coins
     return loaded

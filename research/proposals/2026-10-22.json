@@ -1,0 +1,34 @@
+{
+  "summary": "Research run 2026-10-22 on baseline v0-773ea9 (history 261 trades, +0.258R, PF 1.56, max DD 11.1R; forward 50 trades, +0.353R, PF 1.80). No experiment was decided since the last run, and none of the 8 running challengers is broken (dip15 and short_strong_sell are young; the baseline has few trades in their periods too). Klinger, candle direction, window 0/5, hybrid exits, pullback limits, targets 1.25/1.75/2.0, break-even 1R, lookback 15, stop floor and multiplier 0.75/0.8 are already tested, so this run took the untested knobs the pack points to: 44 of 113 stopped trades first reached +0.5R (break-even 1.25R and a time exit), and the min_stop_pct filter skips 1,062 setups at -0.182R each (min_stop 1.75 and lookback 8). experiment try: exit.max_candles 48 gave +0.148R vs +0.258R, worse in both halves; exit.breakeven_r 1.25 gave +0.229R vs +0.258R, PF 1.51, worse in both halves. Both are recorded so they are not retried.",
+  "proposals": [
+    {
+      "name": "min_stop_175",
+      "change": {"path": "filters.min_stop_pct", "value": 1.75},
+      "hypothesis": "The min_stop_pct filter is the strongest rule in the pack: 1,062 skipped setups would have made -0.182R each, and 1.0% (+0.072R) and 2.0% (+0.142R) were both worse than 1.5%. If the edge rises with stop width up to a point, setups with stops between 1.5% and 1.75% may still be marginal after costs; 1.75% tests the middle of the untested gap.",
+      "expected": "Fewer trades (perhaps 200 of 261) and slightly higher expectancy; the risk is the per-half trade count and losing good trades as 2.0% did in half 1.",
+      "confidence": 0.2
+    },
+    {
+      "name": "lookback_8",
+      "change": {"path": "stop.lookback", "value": 8},
+      "hypothesis": "lookback_15 failed because a wider swing lets more choppy setups pass the 1.5% minimum. The opposite, an 8-candle swing, should let fewer setups pass (only those with a big range close to the entry) and give a tighter stop, so each 1.5R target is nearer. Grounded in the -0.182R of the skipped tight-stop setups and the lookback_15 lesson that the swing and the minimum work as a pair.",
+      "expected": "Fewer trades and higher R per trade if the tight-range setups are the losers; the risk is too few trades per half (needs 15) and a higher cost per R.",
+      "confidence": 0.2
+    },
+    {
+      "name": "max_candles_48",
+      "change": {"path": "exit.max_candles", "value": 48},
+      "hypothesis": "44 of 113 stopped trades first reached +0.5R, so trades that stall might be better closed at market after 48 chart candles (4 h on 5m, 12 h on 15m). Recorded so it is not retried: experiment try gave +0.148R vs +0.258R (half 1 +0.040R vs +0.178R, half 2 +0.253R vs +0.336R), PF 1.58, DD 7.0R vs 11.1R.",
+      "expected": "Fails: lower drawdown but cuts slow winners; worse in both halves.",
+      "confidence": 0.02
+    },
+    {
+      "name": "be_125",
+      "change": {"path": "exit.breakeven_r", "value": 1.25},
+      "hypothesis": "be_1r failed because winners dip back to the entry after +1R. Moving the stop to break-even only at +1.25R, close to the 1.5R target, might save the 44 stopped trades that went well into profit without cutting winners. Recorded so it is not retried: experiment try gave +0.229R vs +0.258R, PF 1.51 vs 1.56, half 1 +0.142R vs +0.178R, half 2 +0.313R vs +0.336R.",
+      "expected": "Fails: worse in both halves, like be_1r.",
+      "confidence": 0.02
+    }
+  ],
+  "lessons": []
+}

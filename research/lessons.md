@@ -138,3 +138,219 @@ Closing on the opposite Q-Trend trigger of the same chart cuts more winners than
 - The whole agent on the v6 TradingView history of XRP, SOL and ETH (2026-07-13 to 10-18): 188 trades, 54% won, +0.285R, PF 1.63, positive in both halves and on every coin.
   - Quality A: 66% won, +0.58R. Quality B: +0.13R.
 - The demo account with today's rules: $150 to $503 (+235%, max DD 16%), against +161% (DD 20%) with a flat 2%. These are in-sample numbers for the tiers.
+
+## 2026-10-20 · stop_floor_1_5pct · {"stop":{"min_pct":1.5}}
+(auto) Rejected on history before any forward trade: expectancy -0.016R is not 0.05R above the baseline's +0.254R; profit factor 0.97 below the baseline's 1.55; max drawdown 66.1R vs 11.1R; half 1: -0.076R, below the baseline's +0.198R; half 2: +0.034R, below the baseline's +0.310R
+
+## 2026-10-20 · limit_rest_5min · {"entry":{"limit_minutes":5}}
+(auto) Rejected on history before any forward trade: expectancy +0.229R is not 0.05R above the baseline's +0.254R; profit factor 1.48 below the baseline's 1.55; half 1: +0.170R, below the baseline's +0.198R; half 2: +0.288R, below the baseline's +0.310R
+
+## 2026-10-20 · stop_floor_1_5pct · {"stop":{"min_pct":1.5}}
+Widening tight swing stops to 1.5% instead of skipping them adds about 920 trades that lose (-0.016R overall, -0.076R in half 1, max DD 66.1R vs 11.1R). The 1.5% minimum does not work by keeping costs low per R: it removes bad entries. A tight swing means a choppy, low-range setup, and a wider stop does not fix it. Keep skipping them.
+
+## 2026-10-20 · limit_rest_5min · {"entry":{"limit_minutes":5}}
+A limit order resting 5 minutes fills 10 more trades, and they lose: +0.229R vs +0.254R, worse in both halves. If the price only comes back to the limit after the first minute, the move has already stalled (adverse selection). Fill in the first minute or skip, as now; market_entry's extra fills are not worth chasing either.
+
+## 2026-10-20: 5% risk, a 20% open-risk budget, and long and short on one coin (research/notes/2026-10-20-risk-and-opposite.md)
+
+- **Flat 5% a trade is too much for clustered signals.** Past: +616% but a 36% max drawdown. The bootstrap median drawdown is 46%, with a 37% chance of more than 50%. 3–4 signals come in the same move, so 5% a trade is 15–20% on one move.
+- **Raising only the open-risk budget to 20% (A 3% / B 2%)** is the cleanest gain: past +294% vs +235% at the same drawdown. Forward it equals what the demo did before the 12% budget (+39% vs +23%).
+- **A 5% / B 3% with a 20% budget** is the middle way: past +544%, max DD 26%.
+- **Long and short on one coin:** the newer signal usually wins (37 to 23 past, 13 to 2 forward). The older position after an opposite signal loses: older B -0.47R past and -0.65R forward; older A -0.06R.
+  - Half-size rules for counter trades are not better.
+  - Closing the older **B** position when the opposite signal enters is better in both halves of both samples (+0.323R vs +0.285R past, +0.520R vs +0.372R forward) with a smaller drawdown.
+  - The A/B split was found on the same data, so this is a shadow-challenger candidate only.
+
+## 2026-10-20: linking the 5m and 15m signals; weak B trades (research/notes/2026-10-20-coordination-plan.md)
+
+- **Letting the 15m trend decide the 5m signals loses:** past +45.4R vs +53.5R, forward +9.3R vs +16.4R, and not replicated. 5m pullback signals against the 15m pay.
+- **One direction per coin (newest wins)** fails past half 1 and the replication sample.
+- **Closing the older B position on an opposite signal** is better in both past and both forward halves (+335% vs +236% past, +62% vs +24% forward at today's rules). It is slightly worse on the skipped-signal sample, so it is a shadow-challenger candidate only.
+- **Do not skip B trades.** Only A: +153% vs +236%. B trades without a later opposite signal make about +0.35R. The weak B group at entry is B without a squeeze release (about +0.05R on 66 trades); forward check from 2026-10-20.
+
+## 2026-10-20: one decision per coin from both charts (research/notes/2026-10-20-one-position-plan.md)
+
+- **Duplicate signals are weak everywhere.** A second signal in the same direction while the coin already has a position makes +0.06R past, +0.01R forward, and -0.24R on the replication sample.
+  - Skipping them (D1) keeps the money: +235% vs +236% past, +39% vs +24% forward. It cuts the drawdown from 10.0R to 5.8R.
+- **"One position per coin, the better signal wins"** (score: A = 2, squeeze = 1; an opposite signal replaces the open position unless the open one scores higher):
+  - +308% vs +236% past and +48% vs +24% forward, with half the drawdown and no long-and-short double stops.
+  - It is in-sample for the score, and slightly worse on the replication sample.
+- **One position per coin with "the first wins"** (`max_positions_per_coin = 1`) is the worst: +171%.
+
+## 2026-10-20: today's ideas on the 51 real demo signals (research/notes/2026-10-20-demo-ideas.md)
+
+- With the tiers filled in from the v6 charts:
+  - A +0.52R vs B +0.24R.
+  - Squeeze fired +0.54R vs +0.17R.
+  - B without squeeze -0.02R.
+  - Duplicates -0.02R.
+  - Counter signals +0.57R.
+- One position per coin with the newer or better signal winning: +53% vs +29% on the demo at today's rules, DD 7.2% vs 10.6%, no double stops.
+  - Closing the older B: +47%. No duplicates: +45%.
+- 15m decides, only-A and first-wins lose again.
+- 51 trades over 15 days: no rule beats "now" in more than 84% of the bootstrap samples. That is evidence, not proof.
+
+## 2026-10-20: the current strategy and every idea on 1.5 and 4 years (research/notes/2026-10-20-long-test-plan.md)
+
+Python copies of Q-Trend, Klinger and Squeeze ran on Binance candles. On the v6 window they gave +0.340R against TradingView's +0.285R.
+
+- **The baseline has almost no long-run edge.**
+  - XRP/SOL/ETH, 4 years: 7,193 trades, +0.008R. The demo at today's rules goes $150 to $63, with a 92% max drawdown.
+  - 1.5 years: +0.015R (gross +0.047R).
+  - The years swing from +104% to -91%. The forward +0.37R is a good regime.
+- **5m signals lose in every year. 15m signals make +0.035R.**
+- **15m decides (5m only with the 15m Q-Trend, the trend15 challenger)** is the only idea better in every third of 4 years: +0.039R, +719% vs -58%. It also helps on 1.5 years and on the check coins. The drawdown is still 79% at 2–3% risk, and 48% at 1%.
+- **The ideas from the 98-day and demo tests fail on 4 years:** P3, no duplicates, close-the-older, one per coin. Bigger risk is ruinous.
+- **The session challengers that lead forward (+0.80R) are about 0R on 4 years.** A 100-day history screen cannot catch regime luck; long data must screen proposals.
+
+## 2026-10-21: one decision per coin, 4 years (research/notes/2026-10-21-mtf-plan.md)
+
+- **15m only + one position per coin (C6) is the only design positive in every year** on XRP/SOL/ETH:
+  - +0.061R a trade.
+  - +519% vs -58% over 4 years at today's risk, max DD 59% vs 92%.
+  - Out-of-sample (2024-10 to 2026-10): +232% vs -88%, DD 39%.
+  - Long and short are never open together.
+  - It helps on the check coins too; on BTC it loses less money but more per trade.
+- **5m entries with an exit on the 15m flip (the user's design) fail.** The flip exit cuts winners.
+- **1h/4h Q-Trend agreement filters fail.**
+- **The squeeze filter on C1** has the lowest drawdown (49%) but fails in-sample. Watch it forward.
+
+## 2026-10-21: a second same-direction position per coin (research/notes/2026-10-21-addon-test.md)
+
+- **A 15m add-on with its own 1.5R** makes more over 4 years (+617% vs +519%) but less in the last 2 years (+160% vs +232%). It has a higher drawdown (52% vs 39% out-of-sample), 27 double stops vs 1, and it is worse on BTC and the check coins.
+- **A smaller (1.0R) or shared target for the add-on is worse.**
+- **5m add-ons lose** (out-of-sample -29%).
+- One position per coin on 15m (C6) stays the best.
+
+## 2026-10-21: other ways to trade the same coins (research/notes/2026-10-21-outside-plan.md)
+
+- **Daily trend following, long only (Donchian 20/10, 2×ATR stop), is the most robust edge found.**
+  - XRP/SOL/ETH/BTC over 6 years: +1.71R a trade, $150 to $2,034 (+1,256%) at 2% risk, max DD 30%.
+  - Both halves positive, every coin positive.
+  - About 22 trades a year; costs are tiny per R.
+- **Shorts lose in every trend system tested** (daily, SMA100, 4h).
+- **Funding carry earns 0–4% a year** (optimistic). Not worth it.
+- **v6 with one trade per coin** (5m and 15m, first wins) is still -57% over 4 years. The 5m first signals block the 15m ones. C6 (15m only + one per coin) is the intraday fix.
+- **Half C6 + half daily trend:** +340% over 4 years with DD 44%, vs C6 +519% / DD 59% and trend +161% / DD 26%.
+- **One-position variants (2026-10-21):**
+  - An opposite 15m signal that only closes the position (V2): fewer stops (37% vs 52%) but +229% vs +519%.
+  - Reversing on it (V3) fails: +69%, out-of-sample -17%.
+  - The squeeze filter on C6 (V1): +186%.
+  - C6 stays the best.
+
+## 2026-10-21: the 5m times the 15m entry (research/notes/2026-10-21-entry-timing-plan.md)
+
+- **Waiting for the first 5m candle that closes against the trade** (within 1 h, else enter at the 1-hour mark), entering at the next 5m open and keeping the 15m target price (E3), is better in both halves:
+  - C6: +737% vs +519%, 2024-26 +331% vs +232%.
+  - A1: +1,307% vs +617%.
+  - It is not worse on BTC or the check coins per trade. The gain per trade is small.
+- **Limit dips 0.25R/0.5R miss 40–73% of the trades; Klinger timing fails out-of-sample.**
+
+## 2026-10-21: the second entry on a 5m dip; drawdown levers (research/notes/2026-10-21-second-entry-and-dd.md)
+
+- **The first position from 15m and the second from a later 15m signal entered on a 5m dip (F1):** +793% over 4 years.
+  - Both entries on the dip (A1+E3) is better: +1,307%.
+  - A 5m-signal add-on (F3) and averaging down at a 0.5R dip (F4) fail.
+- **At most 2 same-direction positions across XRP/SOL/ETH (corr2)** raises the return and lowers the drawdown: C6+E3 +1,127% with DD 46%, and 2024-26 +349% with DD 36%.
+  - Adding a half-risk brake 10% below the peak brings the drawdown to about 30% and halves the return.
+- **Max 2 per coin with up to 6 open (no cross-coin cap):** +1,307%, DD 62%. With at most 2 same-direction positions across the coins (4 open at most): +1,825%, DD 50%. Six open positions happen at only 1% of entries.
+- **Crowded positions (2026-10-21):**
+  - With up to 6 open, the worst day was -12.8%. The 12% budget caps one move.
+  - 4–5 same-direction positions happened only 5 times in 4 years.
+  - With the 2-same-direction cap, the worst day was -10.4% and the max DD 49.5% vs 62.5%.
+- **The user's constraints (2026-10-21):** every coin may always open its first position, up to 5 same-direction positions in total.
+  - Result: +1,368%, DD 62%; with the brake +646%, DD 42%.
+  - Adding the second only when the first is in profit or at +0.5R is worse.
+  - Blocking the third coin's same-direction first position (B) stays better: +1,825%, DD 50%.
+- **Implementation check (2026-10-21), the agent's own engine and account on 4 years:**
+  - The 15m signal with the dip + limit entry and the user's rules: +773% (DD 63%).
+  - Entering at once: +508%. A market order after the dip: +323%.
+  - The research's +1,357% assumed every dip entry fills; 342 limit entries miss, often the runaways. Always validate a research entry rule with the engine's own fill logic.
+
+## 2026-10-21 · stop_mult_075 · {"stop":{"multiplier":0.75}}
+(auto) Rejected on history before any forward trade: expectancy +0.293R is not 0.05R above the baseline's +0.259R; profit factor 1.53 below the baseline's 1.56; half 1: +0.195R, below the baseline's +0.198R
+
+## 2026-10-21 · stop_mult_080 · {"stop":{"multiplier":0.8}}
+(auto) Rejected on history before any forward trade: expectancy +0.297R is not 0.05R above the baseline's +0.259R
+
+## 2026-10-21 · stop_mult_075 · {"stop":{"multiplier":0.75}}
+A stop at 0.75 of the swing (same target price) is past the sweet spot: +0.293R vs +0.259R but PF 1.53 vs 1.56 and half 1 +0.195R vs +0.198R. Tightening further stops out more winners that first dip about 0.3-0.8R against, and the cost per R rises; the gain from 0.8 to 0.75 is gone. Do not tune the multiplier lower.
+
+## 2026-10-21 · stop_mult_080 · {"stop":{"multiplier":0.8}}
+A stop at 0.8 of the swing is better in both halves (+0.224R vs +0.198R, +0.370R vs +0.320R) with the same PF 1.56, but only +0.038R overall, below the 0.05R bar, with DD 13.2R vs 11.1R. Most of the gain is the bigger win in R on the same exits, not better trades; 0.75 is already worse, so it is a flat, small edge on a 100-day sample. Worth a 4-year check in research tools before any new proposal.
+
+## 2026-10-21: 1m and 3m charts (research/notes/2026-10-21-lowtf-test.md)
+
+- **On one year of XRP/SOL/ETH, the baseline rules lose on 1m** (-0.19R a trade; costs about 0.30R a trade) **and break even on 3m** (+0.01R).
+- 5m was -0.01R and 15m +0.06R in the same year.
+- Lower charts mean more signals but smaller stops, so fees eat the edge.
+
+## 2026-10-21: FOMC and 8:30 news days (research/notes/2026-10-21-macro-events.md)
+
+- **The hour after FOMC is about 3x a normal hour's range** (BTC 1.77% vs 0.60%), with 0.5%+ both ways in about 40%. After 8:30 releases it is about 2x.
+- **The planned design's trades open over events did better** (FOMC +0.19R, 8:30 +0.16R, vs +0.05R otherwise). Its 1.5%+ swing stops survive the wicks, and the moves reach targets.
+- **Keep-away rules** (no entries ±1 h, closing before the event) cut the 4-year return from +783% to +540–647% without lowering the drawdown. Do not black out events.
+- The live risk is slippage on stops during spikes. Measure it before going live.
+
+## 2026-10-21: daily news through price shocks and Fear & Greed (research/notes/2026-10-21-news-proxies.md)
+
+- **Entries within 1 h after BTC moved 2%+ in 5 minutes lose:** -0.22R on the main coins, -0.84R on the other coins.
+  - Waiting 1 h after such a move: +985% vs +783% over 4 years, better in both halves, and fewer than 2% of trades are affected.
+- **No trades when the Fear & Greed Index is below 20 or above 80:** +1,272% vs +783%, both halves better.
+  - Replicated on the other coins (+0.034R vs +0.007R).
+  - Extreme-greed longs are the worst group (-0.41R).
+- **Contrarian or with-the-crowd side rules by Fear & Greed fail.**
+- **Coin-level shock waits** cut the drawdown but are not proven.
+- **Both candidates need the agent's own engine on 4 years before a change.** Fear & Greed needs the user's approval as a new external input.
+
+## 2026-10-22 · min_stop_175 · {"filters":{"min_stop_pct":1.75}}
+(auto) Rejected on history before any forward trade: expectancy +0.146R is not 0.05R above the baseline's +0.258R; profit factor 1.30 below the baseline's 1.56; half 1: -0.012R, below the baseline's +0.178R; half 2: +0.286R, below the baseline's +0.336R
+
+## 2026-10-22 · lookback_8 · {"stop":{"lookback":8}}
+(auto) Rejected on history before any forward trade: expectancy +0.199R is not 0.05R above the baseline's +0.258R; profit factor 1.41 below the baseline's 1.56; half 1: +0.071R, below the baseline's +0.178R; half 2: +0.302R, below the baseline's +0.336R
+
+## 2026-10-22 · max_candles_48 · {"exit":{"max_candles":48}}
+(auto) Rejected on history before any forward trade: expectancy +0.148R is not 0.05R above the baseline's +0.258R; half 1: +0.040R, below the baseline's +0.178R; half 2: +0.253R, below the baseline's +0.336R
+
+## 2026-10-22 · be_125 · {"exit":{"breakeven_r":1.25}}
+(auto) Rejected on history before any forward trade: expectancy +0.229R is not 0.05R above the baseline's +0.258R; profit factor 1.51 below the baseline's 1.56; half 1: +0.142R, below the baseline's +0.178R; half 2: +0.313R, below the baseline's +0.336R
+
+## 2026-10-22 · min_stop_175 · {"filters":{"min_stop_pct":1.75}}
+A 1.75% minimum stop is worse in both halves (-0.012R and +0.286R against +0.178R and +0.336R), PF 1.30. The setups with stops between 1.5% and 1.75% are not the marginal ones; they carry much of the edge. With 1.0%, 1.75% and 2.0% all worse, 1.5% is a clear peak: do not tune min_stop_pct again.
+
+## 2026-10-22 · lookback_8 · {"stop":{"lookback":8}}
+An 8-candle swing stop is worse in both halves (+0.071R and +0.302R against +0.178R and +0.336R), PF 1.41. With lookback 15 also worse, 10 candles is the right swing for this setup: a shorter swing lets different, weaker setups pass the 1.5% minimum instead of only the strong ones. Do not tune stop.lookback around 10.
+
+## 2026-10-22 · max_candles_48 · {"exit":{"max_candles":48}}
+Closing at market after 48 chart candles lowers the drawdown (7.0R vs 11.1R) but cuts the slow winners: +0.148R vs +0.258R, worse in both halves (+0.040R vs +0.178R). Trades that run long still reach the target often enough; the 26 history timeouts already earn +0.18R. A time exit is not the fix for the 44 stops that first reached +0.5R.
+
+## 2026-10-22 · be_125 · {"exit":{"breakeven_r":1.25}}
+Break-even at +1.25R is worse in both halves (+0.142R and +0.313R against +0.178R and +0.336R), PF 1.51, just like be_1r. Winners often touch 1.25R, dip back to the entry and still reach 1.5R. Break-even rules do not work with this 1.5R target at any level tested; do not propose more.
+
+## 2026-10-22: the 9 shadow variants and the news filters with the agent's own engine (long_results; data/research/news_validate.txt)
+
+- **3 years, XRP/SOL/ETH/BTC, the current demo rules:** only the 15m variants are positive.
+  - trend15: +0.032R, demo +239%, DD 76%
+  - dip15: +0.034R, demo +56%, DD 69%
+  - tf_15m: +0.020R, demo +17%
+  - v0 is -0.002R, demo -83%, DD 97%.
+- **The 3-week forward leaderboard misleads:** every variant shows +0.3 to +0.6R there.
+- **The news filters on the design (4 years, the user's rules):**
+  - design alone: +773%, DD 62.7%
+  - both filters: +1,123%, DD 49.5%
+  - The BTC-shock wait removed only 42 trades, so most of its gain is timing luck.
+  - The trades Fear & Greed removed were losers with about 77% confidence only.
+
+## 2026-10-23: TradingView replay since June, BTC trend, the quiet drop (research/notes/2026-10-23-gate-replay.md)
+
+- **The replay on the agent's own TradingView snapshots is exact:** v0 since 10-02 matched the live agent on all 438 shared signals and all 390 closed results.
+- **TradingView vs the Python indicator copies:** the new strategy's results are almost equal (09-15 to 10-19: +0.405R vs +0.413R, 49 of 62 trades the same). The 4-year Python replays are a fair stand-in.
+- **The new strategy (15m + 5m dip) since 09-15:** +0.380R, PF 1.94, 1.7 signals a day; demo at the user's rules +56.7% vs v0's +42.7%.
+  - From 06-25 the Fear & Greed filter removed 27 winning trades (+5.9R, extreme fear in late June). Without filters: +210% vs +173%.
+  - The filter is not proven either way.
+- **BTC's direction (daily or 4h trend) does not help as a filter:** it flips between halves.
+- **BTC moving a lot does help:** after a ±3% BTC day, trades did better in both directions (+0.137R / +0.099R vs +0.019R).
+- A 2% BTC move within 4-7 15m candles comes before better-than-average trades (+0.081R vs +0.030R). Do not wait after it.
+- **A slow 4-5% drop with small swings gives no trades:** every signal failed the 1.5% minimum stop.
+  - Taking them anyway would have lost 13.1R in 72 hours.
+  - The minimum stop is doing its job.

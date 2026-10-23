@@ -64,3 +64,7 @@ variants:
   htf_against_4h:   {filters: {htf: against_4h}}
   tf_15m:           {timeframes: ["15m"]}
   trend15:          {filters: {trend_15m: true}}          # 5m signals only with the 15m trend (research 2026-10-04: +0.276R on XRP SOL ETH, steadiest)
+  # 2026-10-21 (approved by the user): the planned new baseline in its shadow test. Only 15m signals, and the limit
+  # entry waits up to 60 minutes for the first 5m candle that closes against the trade (planned stop and target).
+  # 4 years with the agent's own engine and the planned account rules: +773% vs +508% entering at once, both halves.
+  dip15:            {timeframes: ["15m"], entry: {dip_5m_minutes: 60}}

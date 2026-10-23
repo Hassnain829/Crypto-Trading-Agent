@@ -431,3 +431,65 @@ def test_the_status_message_shows_each_open_position_with_its_price_and_result(w
     assert "Entry 1.0002  SL 0.98  TP 1.03" in text  # the market entry includes the slippage
     now_line = next(line for line in text.splitlines() if line.startswith("Now 1.01: +"))
     assert now_line.endswith("R)") and "Balance 150.00 USDT" in text
+
+
+# ---- one decision per coin and the drawdown brake (research 2026-10-21) ---------------------------------------
+def test_opposite_signals_are_skipped_and_a_second_same_direction_position_is_allowed(settings):
+    rules = settings.paper_account
+    rules.allow_opposite, rules.max_positions_per_coin, rules.max_positions = False, 2, 5
+    long_ = OpenPosition("XRP", "long", 300.0)
+    base = {"balance": 150.0, "day_start_balance": 150.0, "rules": rules, "kill_switch": "off"}
+    assert check_entry(symbol="XRP", side="short", open_positions=[long_], **base) == \
+        "XRP has an open long: opposite signals are skipped"
+    assert check_entry(symbol="XRP", side="long", open_positions=[long_], **base) is None
+    assert check_entry(symbol="XRP", side="long", open_positions=[long_, long_], **base) == "max 2 open positions on XRP"
+    assert check_entry(symbol="SOL", side="short", open_positions=[long_], **base) is None  # other coins are free
+    rules.allow_opposite = True
+    assert check_entry(symbol="XRP", side="short", open_positions=[long_], **base) is None
+
+
+def test_the_first_position_of_a_coin_is_always_allowed(settings):
+    rules = settings.paper_account
+    rules.max_positions, rules.max_positions_per_coin, rules.first_position_always = 2, 2, True
+    xrp = OpenPosition("XRP", "long", 300.0)
+    base = {"balance": 150.0, "day_start_balance": 150.0, "rules": rules, "kill_switch": "off", "side": "long"}
+    assert check_entry(symbol="SOL", open_positions=[xrp, xrp], **base) is None  # SOL has none yet
+    assert check_entry(symbol="XRP", open_positions=[xrp, OpenPosition("SOL", "long", 300.0)], **base) == "max 2 open positions"
+    rules.first_position_always = False
+    assert check_entry(symbol="SOL", open_positions=[xrp, xrp], **base) == "max 2 open positions"
+
+
+def test_the_drawdown_brake_cuts_the_risk_below_the_peak(settings):
+    rules, limits = settings.paper_account, MarketLimits(0.01, 0.01, 5.0)
+    rules.risk_tier_a, rules.max_open_risk, rules.drawdown_brake, rules.brake_factor = None, None, 0.10, 0.5
+    normal = size_position(95.0, 100.0, 99.0, rules, limits, peak_balance=100.0)  # 5% below the peak: no brake
+    braked = size_position(89.0, 100.0, 99.0, rules, limits, peak_balance=100.0)  # 11% below
+    assert normal.risk_usd == pytest.approx(0.02 * 95.0) and not normal.notes
+    assert braked.risk_usd == pytest.approx(0.01 * 89.0) and "drawdown brake" in braked.notes[0]
+    rules.drawdown_brake = None
+    assert size_position(89.0, 100.0, 99.0, rules, limits, peak_balance=100.0).risk_usd == pytest.approx(0.02 * 89.0)
+
+
+def test_the_account_waits_for_a_chart_that_waits_for_a_dip_entry(world):
+    conn, settings = world
+    settings.paper_account.symbols = ["XRP", "SOL"]
+    settings.paper_account.max_positions = settings.paper_account.max_positions_per_coin = None
+    start = (now_ms() // (15 * M1)) * 15 * M1 - 4 * H
+    with conn:
+        conn.execute("UPDATE variants SET params_json = ? WHERE id = ?",
+                     (json.dumps({"timeframes": ["15m"], "entry": {"mode": "limit", "dip_5m_minutes": 60}}), BASELINE))
+        conn.execute("INSERT INTO engine_state (key, value) VALUES ('engine:XRP:15m:dip', ?)", (str(start + 3 * H),))
+        conn.execute("INSERT INTO engine_state (key, value) VALUES ('engine:SOL:15m:dip', ?)", (str(start + 2 * H),))
+    reset_account(conn, settings, from_now=True)
+    with conn:
+        conn.execute("UPDATE account_state SET last_entry_time = ?", (start,))
+    early = add_trade(conn, "XRP", "long", start + 2 * H + 10 * M1, 2.0, 1.98)  # before SOL's next decision
+    later = add_trade(conn, "XRP", "long", start + 2 * H + 40 * M1, 2.0, 1.98)  # SOL may still add an earlier one
+    engine = AccountEngine(settings, conn)
+    engine.process()
+    assert paper(conn, early)["status"] == "open" and paper(conn, later) is None
+    sol = add_trade(conn, "SOL", "long", start + 2 * H + 35 * M1, 150.0, 148.5)  # the dip entry SOL was waiting for
+    with conn:
+        conn.execute("UPDATE engine_state SET value = ? WHERE key = 'engine:SOL:15m:dip'", (str(start + 3 * H),))
+    engine.process()
+    assert paper(conn, sol)["status"] == "open" and paper(conn, later)["status"] == "open"  # in entry order, none late

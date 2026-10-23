@@ -161,6 +161,15 @@ def propose(conn: sqlite3.Connection, settings: Settings, proposal: dict[str, An
     return cur.lastrowid, []
 
 
+def record_history_pass(conn: sqlite3.Connection, exp_id: int, result: dict[str, Any]) -> None:
+    """Stage 1 of a two-stage screen passed: keep the result; the experiment waits in 'screening' for stage 2."""
+    row = _row(conn, exp_id)
+    with conn:
+        conn.execute("UPDATE experiments SET screen_json = ? WHERE id = ?",
+                     (json.dumps({**result, "history_passed": True}), exp_id))
+    log_event(conn, "INFO", "learning", f"{row['name']} passed the history screen; the long-history screen follows")
+
+
 def finish_screen(conn: sqlite3.Connection, settings: Settings, exp_id: int, result: dict[str, Any]) -> str:
     """Record a history screen: a pass starts the forward test, a fail rejects the proposal."""
     row = _row(conn, exp_id)

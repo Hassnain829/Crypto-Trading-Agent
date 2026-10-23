@@ -1,0 +1,26 @@
+{
+  "summary": "Research run 2026-10-20 on baseline v0-773ea9 (history 254 trades, +0.254R, PF 1.55; forward 43 trades, +0.346R, PF 1.79). No experiment was decided since the last run, and none of the 7 running challengers is broken; short_strong_sell started on 2026-10-19 and has had only a day. The hour, side, exit, target and confirmation ideas are already covered by running or rejected experiments, so this run looked at the two parts of the pack that were never tested: the 1,025 setups skipped by the 1.5% minimum stop (-0.196R each), and the 18 extra trades that market_entry gets over the limit entry (272 against 254). Both were checked with experiment try and both failed on every rule. They are proposed only so that the manager records them and they are never tried again.",
+  "proposals": [
+    {
+      "name": "stop_floor_1_5pct",
+      "change": {
+        "path": "stop.min_pct",
+        "value": 1.5
+      },
+      "hypothesis": "The min_stop_pct filter skips 1,025 setups at -0.196R each, and the lesson of min_stop_1pct says stops between 1% and 1.5% lose to costs. If costs are the reason, moving a tight swing stop out to 1.5% (instead of skipping the setup) gives those setups the same cost per R as the trades taken now and could add trades with an edge.",
+      "expected": "experiment try: 1,173 trades, -0.016R, PF 0.97, max DD 66.1R; half 1 -0.076R, half 2 +0.034R. Expected to fail: the skipped signals are bad entries, not just too expensive.",
+      "confidence": 0.02
+    },
+    {
+      "name": "limit_rest_5min",
+      "change": {
+        "path": "entry.limit_minutes",
+        "value": 5
+      },
+      "hypothesis": "market_entry takes 272 history trades against the baseline's 254: 18 limit orders do not fill in the first minute. Letting the limit order rest 5 minutes should catch some of them at the maker fee and without slippage.",
+      "expected": "experiment try: 264 trades, +0.229R, PF 1.48 against +0.254R and PF 1.55; worse in both halves (+0.170R and +0.288R). Expected to fail: a fill after the first minute means the price came back first, so these are the weaker trades.",
+      "confidence": 0.02
+    }
+  ],
+  "lessons": []
+}

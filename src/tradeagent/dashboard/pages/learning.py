@@ -115,6 +115,46 @@ def build(store: Store) -> None:
         ui.label("Promote writes the change into config/setups.yaml (a backup goes to data/backups) and the demo trades it "
                  "from the next cycle. Live trading always needs your separate approval.").classes("muted text-xs")
 
+    with card("Leaderboard", "Every active strategy on today's demo rules: forward since the demo (or the strategy) "
+              "started, and on 4 years of research history (2022-10 to 2026-10, filled in by the agent in the background). "
+              "The demo account follows only the baseline; a short forward lead is no proof.", classes="w-full min-w-0"):
+        board_note = ui.label("Loading the leaderboard (a few seconds)...").classes("muted text-xs")
+        board = ui.table(rows=[], row_key="variant", columns=[
+            column("name", "Strategy"), column("role", "Role"), column("since", "Forward since"),
+            column("fwd_trades", "Trades", "right"), column("fwd_exp", "R/trade", "right"),
+            column("fwd_return", "Demo $", "right"), column("fwd_dd", "Max DD", "right"),
+            column("long_trades", "4y trades", "right"), column("long_exp", "4y R/trade", "right"),
+            column("long_h1", "1st half", "right"), column("long_h2", "2nd half", "right"),
+            column("long_return", "4y demo $", "right"), column("long_dd", "4y max DD", "right"),
+        ]).classes("w-full").style("max-width: 100%").props("flat dense")
+        for name in ("fwd_exp", "long_exp", "long_h1", "long_h2"):
+            signed_slot(board, name, "R", 3)
+        for name in ("fwd_return", "long_return"):
+            signed_slot(board, name, "%", 0)
+        ui.label("Demo $ = the return of $" f"{store.settings.paper_account.starting_balance:g} through today's demo rules "
+                 "(risk, open-risk budget, position limits). Research history: Binance candles with Python copies of the "
+                 "AGENT charts' open-source indicators, checked against TradingView (research only).").classes("muted text-xs")
+
+        async def load_board() -> None:
+            from nicegui import run
+
+            from tradeagent.learning.leaderboard import leaderboard
+
+            rows = await run.io_bound(leaderboard, store.defaults.resolve(store.defaults.journal.path), store.settings)
+            board.rows = [{**r, "since": when(r["since"]), "fwd_exp": _r3(r["fwd_exp"]),
+                           "fwd_return": round(r["fwd_return"], 1) if r["fwd_return"] is not None else None,
+                           "fwd_dd": pct(r["fwd_dd"]) if r["fwd_trades"] else "–",
+                           "long_trades": r["long_trades"] if r["long_trades"] is not None else "–",
+                           "long_exp": _r3(r["long_exp"]), "long_h1": _r3(r["long_h1"]), "long_h2": _r3(r["long_h2"]),
+                           "long_return": round(r["long_return"], 0) if r["long_return"] is not None else None,
+                           "long_dd": pct(r["long_dd"]) if r["long_dd"] is not None else "–"} for r in rows]
+            board.update()
+            pending = sum(1 for r in rows if r["long_trades"] is None)
+            board_note.set_text(f"{len(rows)} strategies" + (f" · {pending} still without a 4-year result (the agent "
+                                                            "replays them in the background, about an hour)" if pending else ""))
+
+        ui.timer(0.3, load_board, once=True)
+
     with ui.row().classes("w-full gap-4 items-stretch"):
         with card("Experiment timeline", "Every decision, newest first. Many tests make lucky winners more likely, "
                   "which is why winners must win twice", classes="flex-[3] min-w-[420px]"):

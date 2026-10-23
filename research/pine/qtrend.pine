@@ -1,0 +1,82 @@
+// Q-Trend PUB;57f29d2df9cc4d25b8c5511e95cfaac5 version 15.0 (fetched 2026-10-20 for research)
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © tarasenko_
+
+//@version=5
+indicator("Q-Trend", overlay = 1) 
+
+
+// Inputs
+src = input(close, "Source", group = "Main settings")
+p = input.int(200, "Trend period", group = "Main settings", tooltip = "Changes STRONG signals' sensitivity.", minval = 1)
+atr_p = input.int(14, "ATR Period", group = "Main settings", minval = 1)
+mult = input.float(1.0, "ATR Multiplier", step = 0.1, group = "Main settings", tooltip = "Changes sensitivity: higher period = higher sensitivty.")
+mode = input.string("Type A", "Signal mode", options = ["Type A", "Type B"], group = "Mode")
+use_ema_smoother = input.string("No", "Smooth source with EMA?", options = ["Yes", "No"], group = "Source")
+src_ema_period = input(3, "EMA Smoother period", group = "Source")
+color_bars = input(true, "Color bars?", group = "Addons")
+show_tl = input(true, "Show trend line?", group = "Addons")
+signals_view = input.string("All", "Signals to show", options = ["All", "Buy/Sell", "Strong", "None"], group = "Signal's Addon")
+signals_shape = input.string("Labels", "Signal's shape", options = ["Labels", "Arrows"], group = "Signal's Addon")
+buy_col = input(color.green, "Buy colour", group = "Signal's Addon", inline = "BS")
+sell_col = input(color.red, "Sell colour", group = "Signal's Addon", inline = "BS")
+
+
+
+
+// Calculations
+src := use_ema_smoother == "Yes" ? ta.ema(src, src_ema_period) : src // Source;
+
+h = ta.highest(src, p) // Highest of src p-bars back;
+l = ta.lowest(src, p) // Lowest of src p-bars back.
+d = h - l
+
+ls = "" // Tracker of last signal
+
+m = (h + l) / 2 // Initial trend line;
+m := bar_index > p ? m[1] : m
+
+atr = ta.atr(atr_p)[1] // ATR;
+epsilon = mult * atr // Epsilon is a mathematical variable used in many different theorems in order to simplify work with mathematical object. Here it used as sensitivity measure.
+
+change_up = (mode == "Type B" ? ta.cross(src, m + epsilon) : ta.crossover(src, m + epsilon)) or src > m + epsilon // If price breaks trend line + epsilon (so called higher band), then it is time to update the value of a trend line;
+change_down = (mode == "Type B" ? ta.cross(src, m - epsilon) : ta.crossunder(src, m - epsilon)) or src < m - epsilon // If price breaks trend line - epsilon (so called higher band), then it is time to update the value of a trend line.
+sb = open < l + d / 8 and open >= l
+ss = open > h - d / 8 and open <= h
+strong_buy = sb or sb[1] or sb[2] or sb[3] or sb[4]
+strong_sell = ss or ss[1] or ss[2] or ss[3] or ss[4]
+
+m := (change_up or change_down) and m != m[1] ? m : change_up ? m + epsilon : change_down ? m - epsilon : nz(m[1], m) // Updating the trend line.
+
+ls := change_up ? "B" : change_down ? "S" : ls[1] // Last signal. Helps avoid multiple labels in a row with the same signal;
+colour = ls == "B" ? buy_col : sell_col // Colour of the trend line.
+buy_shape   = signals_shape == "Labels" ? shape.labelup     : shape.triangleup
+sell_shape  = signals_shape == "Labels" ? shape.labeldown   : shape.triangledown
+
+
+
+
+// Plottings
+plot(show_tl ? m : na, "trend line", colour, 3) // Plotting the trend line.
+
+// Signals with label shape
+plotshape(signals_shape == "Labels" and (signals_view == "All" or signals_view == "Buy/Sell") and change_up and ls[1] != "B" and not strong_buy, "Buy signal"       , color = colour, style = buy_shape , location = location.belowbar, size = size.normal, text = "BUY", textcolor = color.white)      // Plotting the BUY signal;
+plotshape(signals_shape == "Labels" and (signals_view == "All" or signals_view == "Buy/Sell") and change_down and ls[1] != "S" and not strong_sell, "Sell signal"   , color = colour, style = sell_shape, size = size.normal, text = "SELL", textcolor = color.white)                                   // Plotting the SELL signal.
+plotshape(signals_shape == "Labels" and (signals_view == "All" or signals_view == "Strong") and change_up and ls[1] != "B" and strong_buy, "Strong Buy signal"      , color = colour, style = buy_shape , location = location.belowbar, size = size.normal, text = "STRONG", textcolor = color.white)   // Plotting the STRONG BUY signal;
+plotshape(signals_shape == "Labels" and (signals_view == "All" or signals_view == "Strong") and change_down and ls[1] != "S" and strong_sell, "Strong Sell signal"  , color = colour, style = sell_shape, size = size.normal, text = "STRONG", textcolor = color.white)                                 // Plotting the STRONG SELL signal.
+
+// Signal with arrow shape
+plotshape(signals_shape == "Arrows" and (signals_view == "All" or signals_view == "Buy/Sell") and change_up and ls[1] != "B" and not strong_buy, "Buy signal"       , color = colour, style = buy_shape , location = location.belowbar, size = size.tiny) // Plotting the BUY signal;
+plotshape(signals_shape == "Arrows" and (signals_view == "All" or signals_view == "Buy/Sell") and change_down and ls[1] != "S" and not strong_sell, "Sell signal"   , color = colour, style = sell_shape, size = size.tiny)                               // Plotting the SELL signal.
+plotshape(signals_shape == "Arrows" and (signals_view == "All" or signals_view == "Strong") and change_up and ls[1] != "B" and strong_buy, "Strong Buy signal"      , color = colour, style = buy_shape , location = location.belowbar, size = size.tiny) // Plotting the STRONG BUY signal;
+plotshape(signals_shape == "Arrows" and (signals_view == "All" or signals_view == "Strong") and change_down and ls[1] != "S" and strong_sell, "Strong Sell signal"  , color = colour, style = sell_shape, size = size.tiny)                               // Plotting the STRONG SELL signal.
+
+barcolor(color_bars ? colour : na) // Bar coloring
+
+
+// Alerts
+alertcondition(change_up and ls[1] != "B", "Q-Trend BUY", "Q-Trend BUY signal were given.") // Buy alert.
+alertcondition(change_down and ls[1] != "S", "Q-Trend SELL", "Q-Trend SELL signal were given.") // Sell alert.
+alertcondition((change_up and ls[1] != "B") or (change_down and ls[1] != "S"), "Q-Trend Signal", "Q-Trend gave you a signal!")
+alertcondition(change_up and ls[1] != "B" and strong_buy, "Strong BUY signal", "Q-Trend gave a Strong Buy signal!")
+alertcondition(change_down and ls[1] != "S" and strong_sell, "Strong SELL signal", "Q-Trend gave a Strong Sell signal!")

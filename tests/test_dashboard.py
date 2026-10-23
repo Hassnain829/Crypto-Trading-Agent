@@ -165,3 +165,33 @@ def test_dashboard_times_follow_the_time_zone_setting():
         assert (widgets.when(ms), widgets.tz_label()) == ("10-03 07:55", "UTC")
     finally:
         widgets.use_timezone(lambda: "Etc/UTC")
+
+
+def test_slow_reports_are_built_off_the_event_loop_and_never_make_a_page_wait(world):
+    import threading
+    import time
+
+    from tradeagent.dashboard.data import Store
+
+    conn, settings = world
+    store = Store(settings)
+    builds, threads = [], []
+
+    def slow(c):
+        threads.append(threading.current_thread().name)
+        time.sleep(0.3)
+        builds.append(c.execute("SELECT count(*) FROM variants").fetchone()[0])
+        return len(builds)
+
+    assert store.cached_slow("report", 60, slow) == 1  # the very first call waits for the first build
+    assert threads[0].startswith("dashboard-report")  # built in a worker thread with its own connection
+    t0 = time.monotonic()
+    assert store.cached_slow("report", 0, slow) == 1  # older than 0 s: the old one comes back at once...
+    assert time.monotonic() - t0 < 0.1
+    for _ in range(50):  # ...while the rebuild runs in the background
+        if store._cache["report"][1] == 2:
+            break
+        time.sleep(0.05)
+    assert store.cached_slow("report", 60, slow) == 2
+    store.invalidate()  # a settings change: kept on show, marked old
+    assert store._cache["report"] == (0.0, 2)

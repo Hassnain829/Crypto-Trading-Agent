@@ -5,8 +5,9 @@ For each closed trading-timeframe candle (in time order, once):
 2. A pending setup confirms on the first candle within its window that passes the confirmation rules,
    or expires when the window is over.
 3. A confirmed setup becomes a trade: entry at the Binance 1m open right after the confirming candle
-   closes, stop from the last N candles, filters checked. A trade that fails a filter is still simulated
-   as a counterfactual (taken = 0) so the value of every filter can be measured.
+   closes (or, with entry.dip_5m_minutes, after the first 5m candle that closes against the trade), stop from
+   the last N candles, filters checked. A trade that fails a filter is still simulated as a counterfactual
+   (taken = 0) so the value of every filter can be measured.
 """
 
 from __future__ import annotations
@@ -21,6 +22,7 @@ from typing import Any
 from tradeagent.config import Settings
 from tradeagent.journal.db import now_ms
 from tradeagent.market.candles import SETTLE_MS, tf_ms
+from tradeagent.market.fear_greed import value_at as fear_greed_at
 
 MINUTE_MS = 60_000
 from tradeagent.setups.config import SetupParams, Variant
@@ -30,6 +32,10 @@ log = logging.getLogger("tradeagent.engine")
 
 BOOK = "exploration"
 M15_MS = 900_000
+M5_MS = 300_000
+DIP_SUFFIX = ":dip"  # the progress keys of the dip-entry pass ("engine:<coin>:<tf>:dip")
+REFERENCE = "BTC"  # the market whose shocks filters.btc_shock_wait_minutes watches
+BATCH = 5000  # snapshots read at a time (a live cycle has a few; a replay of years has hundreds of thousands)
 QUALITY_BARS = 8  # a Trendline breakout in the last 8 closed 15m candles (2 hours) makes a trade quality A
 OI_RISE = 0.01  # ...and so does open interest up more than 1% over the 4 hours before the decision
 OI_WINDOW_MS = 4 * 3_600_000
@@ -57,10 +63,11 @@ class SetupEngine:
         self.variants = variants
         self.conn = conn
         self.costs = costs_from(settings)
-        self.timeframes = sorted({tf for v in variants for tf in v.params.timeframes}, key=tf_ms)
-        # A limit order may rest several minutes: a candle is handled once all of them are known.
-        self.entry_wait_ms = (max((v.params.entry.limit_minutes for v in variants if v.params.entry.mode == "limit"),
-                                  default=1) - 1) * MINUTE_MS
+        # Variants that wait for a 5m dip before entering run in their own pass with their own progress
+        # ("engine:<coin>:<tf>:dip"): a candle is handled there once each of their entries is known, and the other
+        # variants do not wait with them.
+        self.dip_variants = [v for v in variants if v.params.entry.dip_5m_minutes]
+        self._dips: dict[tuple[str, str, int, int], tuple[int, bool]] = {}
 
     def _get_state(self, key: str) -> int:
         row = self.conn.execute("SELECT value FROM engine_state WHERE key = ?", (key,)).fetchone()
@@ -75,47 +82,71 @@ class SetupEngine:
     def process(self) -> Counter[str]:
         """Handle every new snapshot whose entry candle is available. Safe to call repeatedly."""
         counts: Counter[str] = Counter()
+        plain = [v for v in self.variants if not v.params.entry.dip_5m_minutes]
+        # The dip pass first: a new one starts where the other variants were before this run, so it sees this run's candles.
+        for group, suffix in ((self.dip_variants, DIP_SUFFIX), (plain, "")):
+            if group:
+                self._process(group, suffix, counts)
+        return counts
+
+    def _process(self, variants: list[Variant], suffix: str, counts: Counter[str]) -> None:
+        timeframes = sorted({tf for v in variants for tf in v.params.timeframes}, key=tf_ms)
+        # A limit order may rest several minutes: a candle is handled once all of them are known.
+        wait_ms = (max((v.params.entry.limit_minutes for v in variants if v.params.entry.mode == "limit"),
+                       default=1) - 1) * MINUTE_MS
         for symbol in self.settings.exchange.symbols:
             newest_1m = self.conn.execute(
                 "SELECT max(open_time) FROM candles WHERE symbol = ? AND timeframe = '1m'", (symbol,)
             ).fetchone()[0]
             if newest_1m is None:
                 continue
-            for tf in self.timeframes:
+            for tf in timeframes:
                 step = tf_ms(tf)
-                key = f"engine:{symbol}:{tf}"
-                rows = self.conn.execute(
-                    """
-                    SELECT s.id, s.bar_time, s.open, s.high, s.low, s.close, s.values_json, s.signal_version
-                    FROM snapshots s
-                    WHERE s.symbol = ? AND s.timeframe = ? AND s.bar_time > ? AND s.problems_json IS NULL
-                      AND s.signal_version = (SELECT max(x.signal_version) FROM snapshots x
-                                              WHERE x.symbol = s.symbol AND x.timeframe = s.timeframe
-                                                AND x.bar_time = s.bar_time AND x.problems_json IS NULL)
-                    ORDER BY s.bar_time
-                    """,
-                    (symbol, tf, self._get_state(key)),
-                ).fetchall()
-                for row in rows:
-                    entry_time = row["bar_time"] + step
-                    if entry_time + self.entry_wait_ms > newest_1m:
-                        break  # wait until the entry candle (and a resting limit order's minutes) closed and synced
-                    entry = self.conn.execute(
-                        "SELECT open, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?",
-                        (symbol, entry_time),
-                    ).fetchone()
-                    if entry is None and entry_time > newest_1m - SETTLE_MS:
-                        break  # a quiet minute gets its flat candle once settled (sparse venues): wait for it
-                    with self.conn:  # one transaction per candle: restart-safe
-                        if entry is None:
-                            counts["no_entry_candle"] += 1
-                        else:
-                            for v in self.variants:
-                                if tf in v.params.timeframes:
-                                    self._on_candle(v, symbol, tf, row, entry, counts)
-                        self._set_state(key, row["bar_time"])
-                    counts["candles"] += 1
-        return counts
+                key = f"engine:{symbol}:{tf}{suffix}"
+                if suffix and self._get_state(key) == 0 and self._get_state(f"engine:{symbol}:{tf}"):
+                    # a new dip pass starts where the other variants are, like any new variant (no history replay)
+                    with self.conn:
+                        self._set_state(key, self._get_state(f"engine:{symbol}:{tf}"))
+                waiting = False
+                while not waiting:  # in batches, so a long replay (years of candles) does not load them all at once
+                    rows = self.conn.execute(
+                        """
+                        SELECT s.id, s.bar_time, s.open, s.high, s.low, s.close, s.values_json, s.signal_version
+                        FROM snapshots s
+                        WHERE s.symbol = ? AND s.timeframe = ? AND s.bar_time > ? AND s.problems_json IS NULL
+                          AND s.signal_version = (SELECT max(x.signal_version) FROM snapshots x
+                                                  WHERE x.symbol = s.symbol AND x.timeframe = s.timeframe
+                                                    AND x.bar_time = s.bar_time AND x.problems_json IS NULL)
+                        ORDER BY s.bar_time LIMIT ?
+                        """,
+                        (symbol, tf, self._get_state(key), BATCH),
+                    ).fetchall()
+                    for row in rows:
+                        entry_time = row["bar_time"] + step
+                        if entry_time + wait_ms > newest_1m:
+                            waiting = True  # wait until the entry candle (and a resting limit order's minutes) closed and synced
+                            break
+                        entry = self.conn.execute(
+                            "SELECT open, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?",
+                            (symbol, entry_time),
+                        ).fetchone()
+                        if entry is None and entry_time > newest_1m - SETTLE_MS:
+                            waiting = True  # a quiet minute gets its flat candle once settled (sparse venues): wait for it
+                            break
+                        if suffix and entry is not None and self._waiting_for_dip(symbol, tf, row, newest_1m, wait_ms):
+                            waiting = True  # a dip entry of this candle is not known yet (at most dip_5m_minutes)
+                            break
+                        with self.conn:  # one transaction per candle: restart-safe
+                            if entry is None:
+                                counts["no_entry_candle"] += 1
+                            else:
+                                for v in variants:
+                                    if tf in v.params.timeframes:
+                                        self._on_candle(v, symbol, tf, row, entry, counts)
+                            self._set_state(key, row["bar_time"])
+                        counts["candles"] += 1
+                    if len(rows) < BATCH:
+                        break
 
     def _on_candle(self, v: Variant, symbol: str, tf: str, row: sqlite3.Row, entry: sqlite3.Row, counts: Counter[str]) -> None:
         p = v.params
@@ -166,6 +197,68 @@ class SetupEngine:
             if side == "short" and not row["close"] < row["open"]:
                 return False
         return True
+
+    def _btc_move(self, at: int, minutes: int) -> float | None:
+        """BTC's biggest move within one 5m candle among those that closed in the `minutes` before `at`."""
+        row = self.conn.execute(
+            "SELECT max(abs(close / open - 1)), count(*) FROM candles WHERE symbol = ? AND timeframe = '5m'"
+            " AND open_time >= ? AND open_time + ? <= ? AND open > 0",
+            (REFERENCE, at - minutes * MINUTE_MS - M5_MS, M5_MS, at)).fetchone()
+        return row[0] if row and row[1] else None
+
+    def _dip_entry(self, symbol: str, side: str, order_time: int, minutes: int) -> tuple[int, bool] | None:
+        """(entry time, dip found) of a dip entry decided at `order_time`: the open of the 5m candle after the first
+        one that closes against the trade, or the end of the wait. None while the 5m candles it needs are not synced."""
+        key = (symbol, side, order_time, minutes)
+        if key in self._dips:
+            return self._dips[key]
+        end = order_time + minutes * MINUTE_MS
+        sign = 1 if side == "long" else -1
+        newest = self.conn.execute(
+            "SELECT max(open_time) FROM candles WHERE symbol = ? AND timeframe = '5m'", (symbol,)).fetchone()[0]
+        bars = {r["open_time"]: r for r in self.conn.execute(
+            "SELECT open_time, open, close FROM candles WHERE symbol = ? AND timeframe = '5m' AND open_time >= ?"
+            " AND open_time < ?", (symbol, order_time, end))}
+        result = (end, False)
+        t = order_time
+        while t + M5_MS <= end:
+            bar = bars.get(t)
+            if bar is None:
+                if newest is None or t > newest:
+                    return None  # not synced yet
+            elif sign * (bar["close"] - bar["open"]) < 0:
+                result = (t + M5_MS, True)
+                break
+            t += M5_MS
+        self._dips[key] = result
+        return result
+
+    def _waiting_for_dip(self, symbol: str, tf: str, row: sqlite3.Row, newest_1m: int, wait_ms: int) -> bool:
+        """True while a dip-entry variant would open a trade on this candle whose entry is not known yet."""
+        if not self.dip_variants:
+            return False
+        values = json.loads(row["values_json"])
+        order_time = row["bar_time"] + tf_ms(tf)
+        for v in self.dip_variants:
+            p = v.params
+            if tf not in p.timeframes:
+                continue
+            trigger = values.get(p.trigger.indicator) or {}
+            sides = {side for side, field in (("long", p.trigger.long), ("short", p.trigger.short)) if trigger.get(field) == 1}
+            sides |= {r["side"] for r in self.conn.execute(
+                "SELECT side FROM setups WHERE variant_id = ? AND symbol = ? AND timeframe = ? AND status = 'pending'"
+                " AND trigger_time >= ?", (v.id, symbol, tf, row["bar_time"] - p.confirmation.window * tf_ms(tf)))}
+            for side in sides:
+                if not self._confirmed(p, side, values, row):
+                    continue
+                dip = self._dip_entry(symbol, side, order_time, p.entry.dip_5m_minutes)
+                if dip is None or dip[0] + wait_ms > newest_1m:
+                    return True
+                candle = self.conn.execute(
+                    "SELECT 1 FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?", (symbol, dip[0])).fetchone()
+                if candle is None and dip[0] > newest_1m - SETTLE_MS:
+                    return True
+        return False
 
     def _schedule_exits(self, v: Variant, symbol: str, tf: str, side: str, at: int, counts: Counter[str]) -> None:
         """An opposite trigger closes this variant's open `side` trades on this chart at market, at `at`."""
@@ -292,16 +385,45 @@ class SetupEngine:
         if reference is not None and p.stop.multiplier != 1.0:
             stop = entry_ref - sign * p.stop.multiplier * abs(entry_ref - stop)
 
+        # Dip entry: wait for the first 5m candle against the trade (process() made sure the entry is known). The stop
+        # and the targets stay the planned ones; a setup that reaches its stop or target while waiting is not entered.
+        dip: tuple[int, bool] | None = None
+        dip_missed: str | None = None
+        planned: tuple[float, float] | None = None
+        if p.entry.dip_5m_minutes and reference is not None and stop is not None and not problems:
+            planned = (order_price + sign * p.exit.take_profit_r * reference, order_price + sign * p.exit.partial_r * reference)
+            dip = self._dip_entry(symbol, side, order_time, p.entry.dip_5m_minutes)
+            assert dip is not None, "process() handles a candle only once its dip entries are known"
+            entry_time = dip[0]
+            lo, hi = self.conn.execute(
+                "SELECT min(low), max(high) FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time >= ?"
+                " AND open_time < ?", (symbol, order_time, entry_time)).fetchone()
+            at_entry = self.conn.execute(
+                "SELECT open, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time = ?",
+                (symbol, entry_time)).fetchone()
+            if lo is not None and (lo <= stop if sign > 0 else hi >= stop):
+                dip_missed = "stop reached before the dip entry"
+            elif lo is not None and (hi >= planned[0] if sign > 0 else lo <= planned[0]):
+                dip_missed = "target reached before the dip entry"
+            elif at_entry is None:
+                dip_missed = "no 1m candle at the dip entry"
+            else:
+                entry, entry_ref = at_entry, at_entry["open"]
+                partial_passed = p.exit.mode != "fixed" and sign * (planned[1] - entry_ref) <= 0
+                if sign * (entry_ref - stop) <= 0 or sign * (planned[0] - entry_ref) <= 0 or partial_passed:
+                    dip_missed = "the price left the planned range before the dip entry"
+
         # The limit price: the open, or offset_r of the way toward the stop. It fills in the first minute (within
         # limit_minutes) that trades strictly through it; the trade starts in that minute.
         if limit and p.entry.offset_r and reference is not None:
             entry_ref = order_price - sign * p.entry.offset_r * reference
         filled = not limit or (entry["low"] < entry_ref if sign > 0 else entry["high"] > entry_ref)
         if limit and not filled and p.entry.limit_minutes > 1:
+            start = entry_time  # the minute the order is placed: right after the signal, or at the dip entry
             for c in self.conn.execute(
                 "SELECT open_time, high, low FROM candles WHERE symbol = ? AND timeframe = '1m' AND open_time > ?"
                 " AND open_time < ? ORDER BY open_time",
-                (symbol, order_time, order_time + p.entry.limit_minutes * MINUTE_MS),
+                (symbol, start, start + p.entry.limit_minutes * MINUTE_MS),
             ):
                 if c["low"] < entry_ref if sign > 0 else c["high"] > entry_ref:
                     filled, entry_time = True, c["open_time"]
@@ -334,6 +456,16 @@ class SetupEngine:
             start, end = p.filters.session_utc
             if not start <= time.gmtime(order_time / 1000).tm_hour < end:
                 failed.append("session")
+        btc_move = self._btc_move(order_time, max(p.filters.btc_shock_wait_minutes, 60))
+        if p.filters.btc_shock_wait_minutes:
+            recent = self._btc_move(order_time, p.filters.btc_shock_wait_minutes)
+            if recent is not None and recent >= p.filters.btc_shock_pct / 100:
+                failed.append("btc_shock")
+        fear_greed = fear_greed_at(self.conn, order_time)
+        if p.filters.fear_greed_extremes is not None and fear_greed is not None:
+            low, high = p.filters.fear_greed_extremes
+            if not low <= fear_greed <= high:
+                failed.append("fear_greed")
 
         mode = p.exit.mode
         if mode == "htf_rule":
@@ -352,19 +484,27 @@ class SetupEngine:
             "oi_change_4h": oi_change,  # recorded on every trade, for the forward check of the OI flag
             "sqz_fire": sqz_fire,  # recorded for the forward check (2026-10-20); not used for sizing yet
             "sqz_momentum": sqz_momentum,
+            "btc_move_5m": btc_move,  # BTC's biggest 5m move in the hour before the decision (None without its candles)
+            "fear_greed": fear_greed,  # the Fear & Greed Index known at the decision
         }
+        if dip is not None:
+            context["dip_entry"] = {"minutes": (dip[0] - order_time) // MINUTE_MS, "dip_found": dip[1], "missed": dip_missed}
         if problems:
             status, taken, reason, state, target = "invalid", 0, "; ".join(problems), {}, None
             stop_value = stop if stop is not None else entry_ref
-        elif not filled:
-            status, taken, reason, state, target = "missed", int(not failed), ", ".join([*failed, "limit not filled"]), {}, None
+        elif dip_missed or not filled:
+            status, taken, state, target = "missed", int(not failed), {}, None
+            reason = ", ".join([*failed, dip_missed or "limit not filled"])
             stop_value = stop
         else:
             assert stop is not None and reference is not None
             scale = reference / abs(entry_ref - stop)  # 1 unless the stop moved or the limit was offset
+            take_profit_r, partial_r = (p.exit.take_profit_r + p.entry.offset_r) * scale, p.exit.partial_r * scale
+            if planned is not None:  # dip entry: the planned target and partial prices, measured from the fill
+                take_profit_r, partial_r = (sign * (level - entry_ref) / abs(entry_ref - stop) for level in planned)
             sim = open_trade(  # the target stays the planned price: order price + take_profit_r x the swing risk
                 side=side, mode=mode, entry_time=entry_time, entry_ref=entry_ref, stop=stop,
-                take_profit_r=(p.exit.take_profit_r + p.entry.offset_r) * scale, partial_r=p.exit.partial_r * scale,
+                take_profit_r=take_profit_r, partial_r=partial_r,
                 partial_fraction=p.exit.partial_fraction, trail_lookback=p.exit.trail_lookback, costs=self.costs,
                 breakeven_r=p.exit.breakeven_r,
                 time_stop_at=entry_time + p.exit.max_candles * tf_ms(tf) if p.exit.max_candles else None,

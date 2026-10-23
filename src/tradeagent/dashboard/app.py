@@ -121,6 +121,7 @@ def run(host: str = "127.0.0.1", port: int = 8080, open_browser: bool = True, st
     global _store
     settings = load_settings()
     _store = Store(settings)
+    _store.warm_up()  # the slow reports start now, so the first page does not wait for them
     use_timezone(lambda: store().settings.tradingview.timezone)
     # Keeps the agent running (it opens TradingView in debug mode itself). With start_agent=False only the
     # Overview buttons start or stop it.

@@ -20,6 +20,8 @@ from tradeagent.account.kill_switch import get_kill_switch, set_kill_switch
 from tradeagent.account.rules import MarketLimits, OpenPosition, check_entry, open_risk, size_position, used_margin
 from tradeagent.config import PaperAccountConfig, Settings
 from tradeagent.journal.db import now_ms
+from tradeagent.market.candles import tf_ms
+from tradeagent.setups.engine import DIP_SUFFIX
 from tradeagent.sim.simulator import Costs
 
 log = logging.getLogger("tradeagent.account")
@@ -113,6 +115,38 @@ class AccountEngine:
         have = {r[0] for r in self.conn.execute("SELECT symbol FROM market_info WHERE step_size IS NOT NULL")}
         return [symbol for symbol in self.settings.exchange.symbols if symbol not in have]
 
+    def _peak_balance(self, state: dict) -> float:
+        """The account's highest balance so far (for the drawdown brake)."""
+        row = self.conn.execute(
+            "SELECT max(max(coalesce(balance_after, 0)), max(coalesce(balance_before, 0))) FROM account_trades"
+            " WHERE account = ?", (ACCOUNT,)).fetchone()
+        return max(state["balance"], row[0] or 0.0)
+
+    def _horizon(self, baseline_id: str) -> int | None:
+        """Entry time before which every baseline signal is surely in the journal, or None (no wait needed).
+
+        A baseline with dip entries makes the setup engine hold a chart until a trade's entry is known (up to
+        dip_5m_minutes), so a later-created signal can have an earlier entry than one already handled. The account
+        takes signals in entry order only up to this horizon: the slowest chart's next undecided candle. A chart
+        that has not moved for longer than the wait is ignored (stalled reads; its late signals are recorded as late)."""
+        row = self.conn.execute("SELECT params_json FROM variants WHERE id = ?", (baseline_id,)).fetchone()
+        params = json.loads(row["params_json"]) if row and row["params_json"] else {}
+        wait = ((params.get("entry") or {}).get("dip_5m_minutes") or 0) * 60_000
+        if not wait:
+            return None
+        coins = self.rules.symbols or list(self.settings.exchange.symbols)
+        now, horizons = now_ms(), []
+        for symbol in coins:
+            for tf in params.get("timeframes") or []:
+                state = self.conn.execute("SELECT value FROM engine_state WHERE key = ?",
+                                          (f"engine:{symbol}:{tf}{DIP_SUFFIX}",)).fetchone()
+                if not state:
+                    continue
+                horizon = int(state[0]) + 2 * tf_ms(tf)  # the next candle's decision time: its entries come at or after it
+                if horizon >= now - wait - 2 * tf_ms(tf) - 15 * 60_000:
+                    horizons.append(horizon)
+        return min(horizons) if horizons else None
+
     def _last_price(self, symbol: str) -> tuple[int, float] | None:
         """Time and price of the newest 1m close."""
         row = self.conn.execute(
@@ -189,7 +223,10 @@ class AccountEngine:
                 """,
                 (baseline["id"], state["last_entry_time"], state["updated_at"], *(coins or []), ACCOUNT),
             ).fetchall()
+            horizon = self._horizon(baseline["id"])
             for cand in candidates:
+                if horizon is not None and cand["entry_time"] >= horizon:
+                    break  # an earlier signal may still come (a chart waits for a dip entry): next cycle
                 if cand["entry_time"] < state["last_entry_time"]:
                     self._reject(state, cand, LATE)
                     counts["rejected"] += 1
@@ -207,13 +244,14 @@ class AccountEngine:
                           for p in self._open_positions()]
         reason = check_entry(
             symbol=cand["symbol"], open_positions=open_positions, balance=state["balance"],
-            day_start_balance=state["day_start_balance"], rules=self.rules, kill_switch=kill,
+            day_start_balance=state["day_start_balance"], rules=self.rules, kill_switch=kill, side=cand["side"],
         )
         if reason is None:
             quality = json.loads(cand["context_json"] or "{}").get("quality")
+            peak = self._peak_balance(state) if self.rules.drawdown_brake is not None else None
             sizing = size_position(state["balance"], cand["entry_ref"], cand["stop_initial"], self.rules,
                                    self._limits(cand["symbol"]), used_margin(open_positions, self.rules), quality,
-                                   open_risk(open_positions))
+                                   open_risk(open_positions), peak)
             if isinstance(sizing, str):
                 reason = sizing
         if reason is not None:

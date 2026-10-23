@@ -327,4 +327,33 @@ CREATE TABLE IF NOT EXISTS open_interest (
 );
 """,
     ),
+    (
+        15,
+        "long backtests",
+        """
+-- Each active variant replayed on the long research history (learning/long_screen.py backtest), for the
+-- leaderboard: its trades in R and the demo account at the demo rules of that run.
+CREATE TABLE IF NOT EXISTS long_results (
+    variant_id TEXT PRIMARY KEY,
+    params_hash TEXT NOT NULL,
+    period_from INTEGER,
+    period_to INTEGER,
+    result_json TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+);
+""",
+    ),
+    (
+        16,
+        "fear and greed",
+        """
+-- The Crypto Fear & Greed Index (alternative.me), one value a day (market/fear_greed.py); the setup engine can skip
+-- signals in its extremes (filters.fear_greed_extremes). time = the day's start, ms UTC.
+CREATE TABLE IF NOT EXISTS fear_greed (
+    time INTEGER PRIMARY KEY,
+    value INTEGER NOT NULL,
+    classification TEXT
+);
+""",
+    ),
 ]

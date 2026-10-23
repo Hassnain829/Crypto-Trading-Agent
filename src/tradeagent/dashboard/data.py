@@ -7,14 +7,16 @@ writes only settings, the kill switch and the audit log.
 from __future__ import annotations
 
 import json
+import logging
 import math
 import re
 import sqlite3
 import statistics
+import threading
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import psutil
 
@@ -30,7 +32,10 @@ from tradeagent.setups.report import baseline_median_entry, summarize, variant_r
 from tradeagent.supervisor import Supervisor, wanted_state
 from tradeagent.tv.coverage import coverage
 
+log = logging.getLogger("tradeagent.dashboard")
+
 DAY = 86_400_000
+SLOW_REBUILD_S = 300  # the variants and the gate take seconds to build; the agent adds trades once every 5 minutes
 
 
 def now_ms() -> int:
@@ -59,7 +64,11 @@ class Store:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")
         migrate(self.conn)
+        self._path = path
         self._cache: dict[str, tuple[float, Any]] = {}
+        self._lock = threading.Lock()
+        self._running: dict[str, threading.Event] = {}
+        self._slow_keys: set[str] = set()
         self.supervisor: Supervisor | None = None  # set by the app: starts and stops the agent process
 
     # ---- helpers -----------------------------------------------------------------------------
@@ -71,8 +80,56 @@ class Store:
         self._cache[key] = (time.monotonic(), value)
         return value
 
+    def cached_slow(self, key: str, seconds: float, fn: Callable[[sqlite3.Connection], Any]) -> Any:
+        """A slow report (seconds on a large journal: the gate's account replay, the variant report). It is rebuilt
+        in a worker thread with its own connection when older than `seconds`, and pages get the newest finished one
+        at once, so the event loop (and every click in the dashboard) never waits for it. Only a call before the
+        very first build finished waits for that build."""
+        hit = self._cache.get(key)
+        if hit is None or time.monotonic() - hit[0] >= seconds:
+            done = self._rebuild(key, fn)
+            if hit is None:
+                done.wait(timeout=180)
+                hit = self._cache.get(key)
+                if hit is None:  # the worker failed: build it here once (and show the error like any other)
+                    value = fn(self.conn)
+                    self._cache[key] = (time.monotonic(), value)
+                    return value
+        return hit[1]
+
+    def _rebuild(self, key: str, fn: Callable[[sqlite3.Connection], Any]) -> threading.Event:
+        self._slow_keys.add(key)
+        with self._lock:
+            running = self._running.get(key)
+            if running is not None:
+                return running
+            done = self._running[key] = threading.Event()
+
+        def work() -> None:
+            conn = sqlite3.connect(self._path, timeout=30)
+            conn.row_factory = sqlite3.Row
+            try:
+                self._cache[key] = (time.monotonic(), fn(conn))
+            except Exception:  # noqa: BLE001 - the page falls back to building it itself
+                log.exception("dashboard: building %s failed", key)
+            finally:
+                conn.close()
+                with self._lock:
+                    self._running.pop(key, None)
+                done.set()
+
+        threading.Thread(target=work, name=f"dashboard-{key}", daemon=True).start()
+        return done
+
+    def warm_up(self) -> None:
+        """Start the slow reports when the dashboard starts, so the first page does not wait for them."""
+        settings = self.settings
+        self._rebuild("gate", lambda conn: account_report(conn, settings))
+        self._rebuild("variants", self._variants)
+
     def invalidate(self) -> None:
-        self._cache.clear()
+        # The slow reports stay on show until their rebuild is done (marked old, not dropped).
+        self._cache = {k: (0.0, hit[1]) for k, hit in self._cache.items() if k in self._slow_keys}
 
     @property
     def settings(self) -> Settings:
@@ -269,26 +326,32 @@ class Store:
             groups["Exit"][t["exit_reason"] or "-"].append(t["r_net"])
         return {name: [{"group": key, **stats(vals)} for key, vals in sorted(g.items())] for name, g in groups.items()}
 
+    @staticmethod
+    def _variants(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+        split = baseline_median_entry(conn)
+        rows = variant_report(conn, split_time=split)
+        started = conn.execute("SELECT started_at FROM account_state WHERE account = ?", (ACCOUNT,)).fetchone()
+        fwd = (started[0] if started else None) or now_ms()
+        forward = {r[0]: (r[1], r[2]) for r in conn.execute(
+            "SELECT variant_id, count(*), avg(r_net) FROM trades WHERE book = 'exploration' AND taken = 1"
+            " AND status = 'closed' AND entry_time >= ? GROUP BY variant_id", (fwd,))}
+        base = next((r for r in rows if r["role"] == "baseline"), None)
+        for r in rows:
+            r["name"] = r["variant"].rsplit("-", 1)[0]
+            r["forward_trades"], r["forward_expectancy_r"] = forward.get(r["variant"], (0, None))
+            r["delta_r"] = (r["expectancy_r"] - base["expectancy_r"]) if base and r["expectancy_r"] is not None \
+                and base["expectancy_r"] is not None else None
+        return rows
+
     def variants(self) -> list[dict[str, Any]]:
-        def build():
-            split = baseline_median_entry(self.conn)
-            rows = variant_report(self.conn, split_time=split)
-            fwd = self.forward_start or now_ms()
-            forward = {r[0]: (r[1], r[2]) for r in self.q(
-                "SELECT variant_id, count(*), avg(r_net) FROM trades WHERE book = 'exploration' AND taken = 1"
-                " AND status = 'closed' AND entry_time >= ? GROUP BY variant_id", (fwd,))}
-            base = next((r for r in rows if r["role"] == "baseline"), None)
-            for r in rows:
-                r["name"] = r["variant"].rsplit("-", 1)[0]
-                r["forward_trades"], r["forward_expectancy_r"] = forward.get(r["variant"], (0, None))
-                r["delta_r"] = (r["expectancy_r"] - base["expectancy_r"]) if base and r["expectancy_r"] is not None \
-                    and base["expectancy_r"] is not None else None
-            return rows
-        return self.cached("variants", 30, build)
+        # Every variant's statistics over all its trades: seconds on a large journal, so built off the event loop.
+        # Trades change once a cycle (5 minutes); a rebuild holds Python's lock for seconds and slows every page.
+        return self.cached_slow("variants", SLOW_REBUILD_S, self._variants)
 
     def gate(self) -> dict[str, Any]:
         # The report replays the demo account (seconds on a large journal); the gate changes slowly.
-        return self.cached("gate", 60, lambda: account_report(self.conn, self.settings))
+        settings = self.settings  # resolved here: the worker thread must not use this thread's connection
+        return self.cached_slow("gate", SLOW_REBUILD_S, lambda conn: account_report(conn, settings))
 
     def preview(self, rules: PaperAccountConfig, period: str) -> dict[str, Any]:
         return live_preview(self.conn, self.settings, rules, since=self.period_start(period))

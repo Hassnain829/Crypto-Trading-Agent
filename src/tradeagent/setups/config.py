@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tradeagent.journal.db import now_ms
 from tradeagent.tv.catalog import Catalog
@@ -43,6 +43,19 @@ class FilterParams(_Strict):
     zl_own: bool = False  # the signal must agree with the Zero Lag trend of its own chart
     trend_15m: bool = False  # 5m signals only when the 15m Zero Lag trend agrees (15m signals are not affected)
     session_utc: tuple[int, int] | None = None  # only entries whose UTC hour is in [start, end)
+    # Research 2026-10-21 (research/notes/2026-10-21-news-proxies.md): signals right after a BTC shock, or in the Fear &
+    # Greed extremes, did worse. Skip a signal for this many minutes after a BTC 5m candle moved btc_shock_pct or more
+    # (0 = off), and when the Fear & Greed Index is outside [low, high] (None = off).
+    btc_shock_wait_minutes: int = Field(default=0, ge=0, le=720)
+    btc_shock_pct: float = Field(default=2.0, gt=0, le=20)
+    fear_greed_extremes: tuple[int, int] | None = None
+
+    @field_validator("fear_greed_extremes")
+    @classmethod
+    def _fear_greed(cls, value: tuple[int, int] | None) -> tuple[int, int] | None:
+        if value is not None and not 0 <= value[0] < value[1] <= 100:
+            raise ValueError("fear_greed_extremes must be [low, high] with 0 <= low < high <= 100")
+        return value
 
     @field_validator("session_utc")
     @classmethod
@@ -62,6 +75,19 @@ class EntryParams(_Strict):
     # limit: price this share of the way from the open toward the stop (0 = the open), e.g. 0.3 waits for a
     # pullback toward support. The target stays the planned price, so a filled order has a better R:R.
     offset_r: float = Field(default=0.0, ge=0.0, le=0.9)
+    # Minutes to wait for a 5m dip before entering (0 = enter at once). The entry is at the open of the 5m candle
+    # after the first one that closes against the trade, or at the end of the wait; the stop and the target stay
+    # the planned ones. A setup whose stop or target is reached while waiting is not entered. Research
+    # 2026-10-21 (4 years): better in both halves than entering at once.
+    dip_5m_minutes: int = Field(default=0, ge=0, le=240)
+
+    @model_validator(mode="after")
+    def _dip_without_offset(self) -> EntryParams:
+        if self.dip_5m_minutes and self.offset_r:
+            raise ValueError("dip_5m_minutes and offset_r cannot be combined")
+        if self.dip_5m_minutes % 5:
+            raise ValueError("dip_5m_minutes must be a multiple of 5")
+        return self
 
 
 class StopParams(_Strict):
@@ -107,7 +133,8 @@ class SetupParams(_Strict):
 # the hash, so adding an option never renames the existing variants (which would split their history).
 ADDED_LATER: dict[tuple[str, str], Any] = {
     ("entry", "limit_minutes"): 1, ("entry", "offset_r"): 0.0, ("filters", "trend_15m"): False,
-    ("stop", "min_pct"): None,
+    ("stop", "min_pct"): None, ("entry", "dip_5m_minutes"): 0, ("filters", "btc_shock_wait_minutes"): 0,
+    ("filters", "btc_shock_pct"): 2.0, ("filters", "fear_greed_extremes"): None,
 }
 
 

@@ -9,6 +9,7 @@ from typing import Any
 from tradeagent.config import Settings
 from tradeagent.market.candles import (ensure_venue, repair_gaps, sync_candles, sync_funding, sync_market_info,
                                       sync_open_interest)
+from tradeagent.market.fear_greed import sync_fear_greed
 
 log = logging.getLogger("tradeagent.market")
 
@@ -33,6 +34,19 @@ def sync_all(settings: Settings, conn: sqlite3.Connection, client: Any, now: int
             counts[f"{symbol} oi"] = sync_open_interest(conn, client, symbol, market, now)
         except Exception as exc:
             log.warning("open interest of %s not synced: %s", symbol, " ".join(str(exc).split())[:200])
+    if settings.venue == "binance-usdm":  # reference markets (BTC) as 5m candles, for the BTC-shock filter
+        for symbol, market in settings.market_data.reference_markets.items():
+            if symbol in settings.markets():
+                continue  # traded anyway
+            try:
+                counts[f"{symbol} 5m"] = sync_candles(conn, client, symbol, market, "5m", now, min(days, 7), backfill_pages)
+            except Exception as exc:
+                log.warning("reference market %s not synced: %s", symbol, " ".join(str(exc).split())[:200])
+    if settings.market_data.fear_greed:
+        try:  # an outside service: a failure must not stop the candles
+            counts["fear & greed"] = sync_fear_greed(conn, now)
+        except Exception as exc:
+            log.warning("fear & greed index not synced: %s", " ".join(str(exc).split())[:200])
     if with_info or conn.execute("SELECT count(*) FROM market_info").fetchone()[0] < len(settings.exchange.symbols):
         sync_market_info(conn, client, settings.markets())
     return counts
