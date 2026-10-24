@@ -354,3 +354,45 @@ Break-even at +1.25R is worse in both halves (+0.142R and +0.313R against +0.178
 - **A slow 4-5% drop with small swings gives no trades:** every signal failed the 1.5% minimum stop.
   - Taking them anyway would have lost 13.1R in 72 hours.
   - The minimum stop is doing its job.
+
+## 2026-10-23: candlestick and chart patterns (research/notes/2026-10-23-patterns-plan.md)
+
+- **Patterns traded on their own lose on 5m, 15m and 1h after costs.**
+  - They improve with the timeframe; the best are small: 1d bullish engulfing +0.088R, 4h morning star +0.050R, 4h double bottom +0.012R.
+  - Inverted hammer, hanging man and tweezers are worse than chance everywhere.
+- **As context for the agent's own trades, they look useful:**
+  - a pattern in the trade's direction on the coin's last 1h candle: +0.099R vs -0.004R
+  - the same on the last daily candle: +0.139R vs +0.022R
+  - both in both halves
+  - These are size-factor candidates, not filters. The next step is the account test and the overlap with tier A.
+- **Any pattern on BTC's last 4h candle comes with worse trades:** -0.04R vs +0.07R.
+- **Second pass, same day (research/notes/2026-10-23-patterns2-plan.md):**
+  - On the first sample alone the 1h/1d pattern gap could be luck (rotation p 0.23-0.32 over 12 looks).
+  - It replicated on unseen trades in both halves: dip15 on BTC +0.091R vs -0.092R, v0 +0.015R vs -0.014R, trend15 +0.070R vs +0.005R.
+  - Tier A for "pattern in the trade's direction on the last 1h or 1d candle" at 3%: 4 years +1,083% (DD 67.5%) vs +848% (DD 71.5%) for flat sizing at the same 2.48% average risk; TradingView since June +278% vs +260%. The 2024-26 DD was worse than flat.
+  - A bigger tier A raises return and drawdown together. On TradingView the DD jumps at 5% (22.3%).
+  - The remaining candlestick patterns and the chart patterns add nothing on their own. Gap patterns never form in crypto.
+  - A chart breakout in either direction marks an active market, where the design does better.
+- **Higher-timeframe candle patterns as the direction for 15m/5m scalps (research/notes/2026-10-23-htf-bias-plan.md):**
+  - The direction of a 1h/4h/1d candlestick pattern is no better than a coin flip; every version loses after costs.
+  - The one exception: a 4h chart-pattern breakout as the bias with a 15m pullback entry and the agent's stop rules. +0.056R, about 1 trade a day on 3 coins, both halves, XRP and SOL positive, ETH negative. It is one of about 20 tests, so it is a candidate second engine that needs validation.
+- **Indicators plus candle patterns (research/notes/2026-10-23-confluence.md):**
+  - 31% of the design's 15m signal candles are a recognisable pattern. A same-way marubozu on the signal candle did better (+0.19 to +0.37R, small samples).
+  - A signal after three same-coloured candles (identical three crows) is late: -0.21R.
+  - The three-line strike in its strike direction beats chance on 1h, but it still loses after costs.
+  - The working combination is the agent's indicators plus a same-way pattern on the higher timeframe (1h/1d).
+- **BTC leads the alts (research/notes/2026-10-23-btc-and-engine2.md):**
+  - On BTC -3% days, XRP/SOL/ETH fell on 93-99% of them.
+  - BTC's slow trend does not help, but BTC's move over the last 12 h (2%+) known at the decision does: with it +0.158R, against it +0.005R. It replicated on v0.
+  - The tier-A package (1h/1d pattern, 4h chart breakout, BTC 12h move with the trade), with trades against a 2%+ BTC 12h move skipped: 4 years +1,430%, DD 59.3% vs +728%, DD 62.7% for flat 2%. Both halves are better.
+  - The second engine (4h chart breakout -> 15m) adds trades and money but does not replicate on 9 other coins (+0.017R). Shadow first.
+- **Tier-A package checked on 13 coins and a second replay (research/notes/2026-10-24-patterns-per-coin-plan.md):**
+  - The 1h/1d candle-pattern factor (b) is fragile. It fades after 2025, flips between two replays of the same window, and fails on 9 other coins. Drop it.
+  - The 4h chart breakout (c) and the BTC 12h move (d) hold on XRP/SOL/ETH in both replays and windows, but not on other coins.
+  - Skipping trades against a 2%+ BTC 12h move cuts the drawdown in every data set.
+  - Revised package a+c+d + skip: 4 years +1,089% (DD 59.7%); 13-coin XRP/SOL/ETH +120% (DD 54.3%); TradingView +219% (DD 12.2%). It beats today's tiers everywhere, with a lower DD everywhere.
+  - The design itself is weak on most other coins (+0.017R average), so coin choice matters.
+- **Trades a day with the revised package (research/notes/2026-10-24-patterns-per-coin-plan.md):**
+  - About 1.6 a day over 4 years; 1.1 a day in the quieter last 4 months.
+  - Quiet BTC days give 0.8 a day at about 0R. Volatile days give 2.2 a day at +0.09R to +0.45R.
+  - On high-volume days: 2.3 a day at +0.12R to +0.24R. The strategy earns on active days.
