@@ -396,3 +396,31 @@ Break-even at +1.25R is worse in both halves (+0.142R and +0.313R against +0.178
   - About 1.6 a day over 4 years; 1.1 a day in the quieter last 4 months.
   - Quiet BTC days give 0.8 a day at about 0R. Volatile days give 2.2 a day at +0.09R to +0.45R.
   - On high-volume days: 2.3 a day at +0.12R to +0.24R. The strategy earns on active days.
+
+## 2026-10-28 · macd_trend_filter · {"filters":{"macd_trend":true}}
+(auto) Rejected on history before any forward trade: expectancy +0.233R is not 0.05R above the baseline's +0.264R; profit factor 1.49 below the baseline's 1.58; half 2: +0.335R, below the baseline's +0.415R
+
+## 2026-10-28 · confirm_window_2 · {"confirmation":{"window":2}}
+(auto) Rejected on history before any forward trade: expectancy +0.264R is not 0.05R above the baseline's +0.264R; profit factor 1.57 below the baseline's 1.58; half 1: +0.097R, below the baseline's +0.109R
+
+## 2026-10-28 · htf_1h_4h · {"filters":{"htf":"1h+4h"}}
+(auto) Rejected on history before any forward trade: only 13 trades in half 1 (needs 15)
+
+## 2026-10-28 · stop_mult_120 · {"stop":{"multiplier":1.2}}
+(auto) Rejected on history before any forward trade: expectancy +0.217R is not 0.05R above the baseline's +0.264R; profit factor 1.53 below the baseline's 1.58; half 2: +0.321R, below the baseline's +0.415R
+
+## 2026-10-28 · macd_trend_filter · {"filters":{"macd_trend":true}}
+MACD trend filter is worse in both halves on v4 (half 2: +0.335R vs +0.415R, PF 1.49 vs 1.58). Unlike ZL or HTF filters that hurt only half 1, this hurts the strong period too. Like Supertrend direction, most trades already agree with the MACD side; the trades removed are not the bad ones.
+
+## 2026-10-28 · confirm_window_2 · {"confirmation":{"window":2}}
+Removing only 3rd-candle confirmations still hurts: half 1 +0.097R vs +0.109R. Late confirmations (candles 2-3) are good trades; every reduction of the confirmation window removes value. Window=3 is the right setting on this baseline, confirmed now from both ends (window=0 and window=2 both worse).
+
+## 2026-10-28 · htf_1h_4h · {"filters":{"htf":"1h+4h"}}
+htf=1h+4h has only 13 trades in half 1 (needs 15). With 4 months of history, any filter requiring both 1h and 4h ZL agreement is too restrictive to screen. Do not propose htf=1h+4h or any stricter HTF combination until the history grows to at least 2 years.
+
+## 2026-10-28 · stop_mult_120 · {"stop":{"multiplier":1.2}}
+A 1.2x wider stop earns less per trade (+0.217R vs +0.264R, PF 1.53 vs 1.58), consistent with the 1h anchor result (wider stops = higher win rate, lower R per trade). The trade's 15m swing at 1.0x is the right width; widening it in either direction on the standard or 1h scale reduces expectancy. Do not test wider multipliers.
+
+## 2026-10-29 · stop_mult_080_v4 · {"stop":{"multiplier":0.8}}
+(auto) Rejected on history before any forward trade: expectancy +0.299R is not 0.05R above the baseline's +0.268R; profit factor 1.57 below the baseline's 1.59; max drawdown 12.3R vs 9.5R; half 2: +0.394R, below the baseline's +0.396R
+A 0.8 stop on v4 gains only +0.031R (+0.299R vs +0.268R), with PF 1.57 vs 1.59, DD 12.3R vs 9.5R and half 2 just below (+0.394R vs +0.396R). On the old baseline the same change was +0.038R and better in both halves; with the 5m dip entry the gain shrank and the second half no longer improves. The dip entry already takes most of what a tighter stop gave: the extra R per win is offset by more stop-outs and a deeper drawdown. Now tested on two baselines, short of the bar both times: stop.multiplier stays 1.0; do not tune it again (0.75, 0.8 and 1.2 all fail).

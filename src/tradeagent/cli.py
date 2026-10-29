@@ -70,6 +70,9 @@ def main(argv: list[str] | None = None) -> int:
     commands.add_parser("alert-test", help="send a test message to the phone (ntfy app, topic NTFY_TOPIC in .env)")
     ej = commands.add_parser("export-journal", help="write a complete copy of the journal (safe while the agent runs)")
     ej.add_argument("path", nargs="?", default="data/transfer/journal.db")
+    ir = commands.add_parser("import-replay", help="count a replay's baseline trades in the go-live gate (goal.count_from)")
+    ir.add_argument("path", help="a journal written by research/tools/gate_replay.py")
+    ir.add_argument("--before", help="only trades that entered before this UTC date (YYYY-MM-DD)")
     commands.add_parser("research-pack", help="write the research pack Claude reads (research/packs/)")
     exp = commands.add_parser("experiment", help="learning loop: list, propose, try, screen, evaluate, stop, lesson")
     exp_cmd = exp.add_subparsers(dest="action", required=True)
@@ -129,6 +132,30 @@ def main(argv: list[str] | None = None) -> int:
         problem = alerts.send_now(settings, "Test message: alerts work.", tags="white_check_mark")
         print(problem or f"Sent to the ntfy topic {alerts.topic(settings)}. Check the ntfy app on your phone.")
         return 1 if problem else 0
+    if args.command == "import-replay":
+        import calendar
+        import time
+        from pathlib import Path
+
+        from tradeagent.account.gate_import import import_replay
+        from tradeagent.config import load_settings
+        from tradeagent.journal import connect, migrate
+
+        settings = load_settings()
+        path = Path(args.path) if Path(args.path).is_absolute() else settings.root / args.path
+        before = calendar.timegm(time.strptime(args.before, "%Y-%m-%d")) * 1000 if args.before else None
+        conn = connect(settings.resolve(settings.journal.path))
+        migrate(conn)
+        try:
+            vid, n = import_replay(conn, path, before)
+        except ValueError as exc:
+            print(exc)
+            return 2
+        finally:
+            conn.close()
+        print(f"{n} replayed trades imported as {vid}; the gate counts them from goal.count_from"
+              f" ({settings.goal.count_from or 'not set: the account start'})")
+        return 0
     if args.command == "export-journal":
         import sqlite3
         from pathlib import Path

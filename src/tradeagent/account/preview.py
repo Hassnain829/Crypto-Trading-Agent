@@ -42,9 +42,16 @@ def live_preview(conn: sqlite3.Connection, settings: Settings, rules: PaperAccou
         mem.execute("UPDATE variants SET role = 'baseline'")
         _copy(conn, mem, "market_info")
         coins = f" AND symbol IN ({', '.join('?' * len(symbols))})" if symbols else ""
-        signals = _copy(conn, mem, "trades", "WHERE book = 'exploration' AND variant_id = ? AND taken = 1"
-                        " AND status IN ('open', 'closed') AND entry_time >= ?" + coins,
-                        (baseline[0], since or 0, *(symbols or [])))
+        # Every trade of these rules: the variant's own and those of variants with the same rules (a replay of the
+        # agent's own data imported for the gate, a promoted challenger), one per signal, as the gate counts them.
+        _copy(conn, mem, "trades", "WHERE book = 'exploration' AND taken = 1 AND status IN ('open', 'closed')"
+              " AND entry_time >= ? AND variant_id IN (SELECT id FROM variants WHERE params_hash ="
+              " (SELECT params_hash FROM variants WHERE id = ?))" + coins, (since or 0, baseline[0], *(symbols or [])))
+        mem.execute("DELETE FROM trades WHERE id NOT IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (PARTITION BY"
+                    " symbol, timeframe, side, confirm_time ORDER BY variant_id = ? DESC, id) AS n FROM trades) WHERE n = 1)",
+                    (baseline[0],))
+        mem.execute("UPDATE trades SET variant_id = ?", (baseline[0],))
+        signals = mem.execute("SELECT count(*) FROM trades").fetchone()[0]
         _copy(conn, mem, "candles", "WHERE timeframe = '1m' AND open_time = (SELECT max(c.open_time) FROM candles c"
               " WHERE c.symbol = candles.symbol AND c.timeframe = '1m')")
         mem.commit()

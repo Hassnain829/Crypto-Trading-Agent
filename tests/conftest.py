@@ -33,4 +33,13 @@ def settings(tmp_path: Path) -> Settings:
     loaded.alerts.enabled = False  # tests never send phone messages, even when .env has NTFY_TOPIC
     loaded.market_data.fear_greed = False  # no calls to the outside index from tests
     loaded.market_data.reference_markets = {}  # fake clients know only the test coins
+    # Neutral account rules, tier-A reasons and gate start (settings.yaml sets the demo's); each test sets what it checks.
+    for rules in (loaded.paper_account, loaded.live_account):
+        rules.max_positions_per_coin = None
+        rules.max_positions = None
+        rules.allow_opposite = True
+        rules.first_position_always = False
+    loaded.quality.chart_4h = False
+    loaded.quality.btc_move = None
+    loaded.goal.count_from = None
     return loaded

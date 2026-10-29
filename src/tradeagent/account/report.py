@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import calendar
 import sqlite3
 import time
 from typing import Any
@@ -100,6 +101,14 @@ def edge_lower_bound(trades: list[tuple[int, float]], level: float = EDGE_LEVEL,
     return means[int((1 - level) * draws)]
 
 
+def gate_since(settings: Settings, started_at: int | None) -> int | None:
+    """Where the gate starts counting: the demo account's start, or goal.count_from (UTC date) when that is earlier."""
+    if not settings.goal.count_from:
+        return started_at
+    count_from = calendar.timegm(time.strptime(settings.goal.count_from, "%Y-%m-%d")) * 1000
+    return count_from if started_at is None else min(started_at, count_from)
+
+
 def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, Any]:
     """The paper account (money view) and the go-live gate.
 
@@ -113,6 +122,7 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
     state = conn.execute("SELECT balance, started_at FROM account_state WHERE account = ?", (ACCOUNT,)).fetchone()
     balance = state["balance"] if state else start
     started_at = state["started_at"] if state else None
+    since = gate_since(settings, started_at)
     closed = conn.execute(
         "SELECT pnl_usd, r_net, fees_usd, balance_after FROM account_trades"
         " WHERE account = ? AND status = 'closed' ORDER BY exit_time, id",
@@ -145,11 +155,11 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
     for r in closed:
         peak = max(peak, r["balance_after"])
         max_dd = max(max_dd, (peak - r["balance_after"]) / peak)
-    begin = started_at or first_entry
+    begin = since or first_entry
     days = (time.time() * 1000 - begin) / 86_400_000 if begin else 0.0
     expectancy = sum(r["r_net"] for r in closed) / len(closed) if closed else None
     profit_factor = sum(wins) / -sum(losses) if losses else None
-    timed = forward_trades(conn, started_at, settings.paper_account.symbols)
+    timed = forward_trades(conn, since, settings.paper_account.symbols)
     sample = [r for _t, r in timed]
     sample_exp = sum(sample) / len(sample) if sample else None
     lower = edge_lower_bound(timed)
@@ -163,7 +173,7 @@ def account_report(conn: sqlite3.Connection, settings: Settings) -> dict[str, An
     snapshot_coverage = sum(r["ok"] for r in rows) / expected if expected else 0.0
 
     goal = settings.goal
-    preview = live_preview(conn, settings, settings.live_account, since=started_at)
+    preview = live_preview(conn, settings, settings.live_account, since=since)
 
     def ratio(value: float | None, target: float) -> float:
         if value is None or target <= 0:

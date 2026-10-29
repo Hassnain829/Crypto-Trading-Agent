@@ -621,3 +621,78 @@ def test_dip_entry_options_are_checked_and_keep_old_variant_ids():
         _variant("v0", {"entry": {"dip_5m_minutes": 7}})
     with pytest.raises(ValidationError):
         _variant("v0", {"entry": {"mode": "limit", "dip_5m_minutes": 60, "offset_r": 0.3}})
+
+
+def _btc(conn, at, close_now, close_before, hours=12):
+    """BTC 5m candles that close at `at` and `hours` earlier."""
+    conn.executemany("INSERT INTO candles VALUES ('BTC', '5m', ?, ?, ?, ?, ?, 1.0)", [
+        (at - M5, close_now, close_now, close_now, close_now),
+        (at - hours * H - M5, close_before, close_before, close_before, close_before)])
+    conn.commit()
+
+
+def test_a_signal_against_a_btc_move_is_skipped(world):
+    conn, variants, settings = world
+    skip = _variant("skip", {"filters": {"btc_against_pct": 2.0}}, role="baseline")
+    register_variants(conn, [skip])
+    _btc(conn, T0 + M5, 100.0, 103.0)  # BTC -2.9% over the 12 hours before the long signal's decision
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    SetupEngine(settings, [skip], conn).process()
+    t = conn.execute("SELECT taken, reason, context_json FROM trades").fetchone()
+    assert (t["taken"], t["reason"]) == (0, "btc_against")
+    assert json.loads(t["context_json"])["btc_change"] == pytest.approx(100 / 103 - 1)
+
+
+def test_btc_moving_the_trades_way_is_taken_and_makes_it_quality_a_when_turned_on(world):
+    conn, variants, settings = world
+    skip = _variant("skip", {"filters": {"btc_against_pct": 2.0}}, role="baseline")
+    register_variants(conn, [skip])
+    _btc(conn, T0 + M5, 102.5, 100.0)  # BTC +2.5%: the long goes with it
+    _snap(conn, 0, _values(buy=1, hist=2.0), close=100.4)
+    settings.quality.btc_move = None
+    SetupEngine(settings, [skip], conn).process()
+    t = conn.execute("SELECT taken, context_json FROM trades").fetchone()
+    ctx = json.loads(t["context_json"])
+    assert t["taken"] == 1 and ctx["quality"] == "B" and ctx["btc_change"] == pytest.approx(0.025)
+    for table in ("trades", "setups", "engine_state"):
+        conn.execute(f"DELETE FROM {table}")
+    settings.quality.btc_move = 0.02
+    SetupEngine(settings, [skip], conn).process()
+    ctx = json.loads(conn.execute("SELECT context_json FROM trades").fetchone()[0])
+    assert ctx["quality"] == "A" and ctx["quality_reason"] == "BTC +2.5% in the last 12 h"
+
+
+def test_a_4h_chart_breakout_the_trades_way_makes_a_trade_quality_a(world, monkeypatch):
+    import numpy as np
+
+    from tradeagent.setups import chart_patterns
+    from tradeagent.setups.engine import H4_MS
+
+    conn, variants, settings = world
+    decision = T0 + 3 * M5  # the confirming candle (i = 2) closes here
+    last = decision // H4_MS * H4_MS  # the newest closed 4h candle ends here
+    conn.executemany("INSERT INTO candles VALUES ('XRP', '15m', ?, 100.0, 100.5, 99.5, 100.0, 1.0)",
+                     [(t,) for t in range(last - 40 * 86_400_000, last, 900_000)])
+    conn.commit()
+    seen = []
+
+    def breakout_up_on_the_newest_candle(o, h, l, c, include_last=False):
+        seen.append((len(c), include_last))
+        bull = np.zeros(len(c), bool)
+        bull[-1] = True
+        return bull, np.zeros(len(c), bool)
+
+    monkeypatch.setattr(chart_patterns, "breakout_masks", breakout_up_on_the_newest_candle)
+    settings.quality.chart_4h = True
+    _snap(conn, 0, _values(buy=1, hist=-5.0))
+    _snap(conn, 1, _values(hist=-1.0))
+    _snap(conn, 2, _values(hist=2.0), close=100.4)
+    SetupEngine(settings, variants, conn).process()
+    ctx = json.loads(conn.execute("SELECT context_json FROM trades WHERE variant_id LIKE 'v0-%'").fetchone()[0])
+    assert ctx["chart_4h"] == 1 and ctx["quality"] == "A" and "4h chart-pattern breakout" in ctx["quality_reason"]
+    assert seen == [(240, True)]  # 40 days of closed 4h candles, worked out once for both variants
+
+
+def test_the_btc_against_option_keeps_old_variant_ids():
+    assert _variant("v0", {"filters": {"btc_against_pct": 0.0, "btc_against_hours": 12}}).id == _variant("v0").id
+    assert _variant("v0", {"filters": {"btc_against_pct": 2.0}}).id != _variant("v0").id

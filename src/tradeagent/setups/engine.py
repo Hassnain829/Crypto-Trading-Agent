@@ -19,12 +19,15 @@ import time
 from collections import Counter
 from typing import Any
 
+import numpy as np
+
 from tradeagent.config import Settings
 from tradeagent.journal.db import now_ms
 from tradeagent.market.candles import SETTLE_MS, tf_ms
 from tradeagent.market.fear_greed import value_at as fear_greed_at
 
 MINUTE_MS = 60_000
+from tradeagent.setups import chart_patterns
 from tradeagent.setups.config import SetupParams, Variant
 from tradeagent.sim.simulator import Costs, TradeState, open_trade
 
@@ -41,6 +44,9 @@ OI_RISE = 0.01  # ...and so does open interest up more than 1% over the 4 hours 
 OI_WINDOW_MS = 4 * 3_600_000
 SQZ_ON, SQZ_OFF = 5, 6  # Squeeze Momentum [LazyBear] state codes (the colorer's palette values)
 SQZ_BARS = 6  # recorded, not used for sizing yet: a squeeze released in the last 6 candles (research 2026-10-20)
+H4_MS = 4 * 3_600_000
+CHART_DAYS = 40  # 4h candles of the last 40 days (from the 15m candles) feed the chart-pattern breakouts
+CHART_BARS = 2  # a breakout in the last 2 closed 4h candles counts
 
 
 def costs_from(settings: Settings) -> Costs:
@@ -68,6 +74,7 @@ class SetupEngine:
         # variants do not wait with them.
         self.dip_variants = [v for v in variants if v.params.entry.dip_5m_minutes]
         self._dips: dict[tuple[str, str, int, int], tuple[int, bool]] = {}
+        self._charts: dict[tuple[str, int], int | None] = {}
 
     def _get_state(self, key: str) -> int:
         row = self.conn.execute("SELECT value FROM engine_state WHERE key = ?", (key,)).fetchone()
@@ -319,27 +326,80 @@ class SetupEngine:
         sign = 1 if side == "long" else -1
         return released and sign * momentum > 0, momentum
 
-    def _quality(self, symbol: str, side: str, at: int) -> tuple[str, str | None, float | None]:
-        """Quality tier of a trade decided at `at`, its reason, and the 4-hour open interest change. "A" when either
-        - the 15m chart showed a same-direction Trendline breakout in the last QUALITY_BARS closed candles
-          (research 2026-10-18: those trades won 66% at +0.59R against +0.23R), or
-        - open interest rose more than OI_RISE in the 4 hours before (research 2026-10-19: +0.63R against +0.22R,
-          and +0.04R against -0.22R on the skipped signals; it hardly overlaps with the Trendline flag);
-        else "B"."""
+    def _btc_change(self, at: int, hours: int) -> float | None:
+        """BTC's change from the close `hours` before `at` to the last close at `at` (5m candles that closed by then;
+        each must be at most 15 minutes old). None without its candles."""
+        def close(t: int) -> float | None:
+            row = self.conn.execute(
+                "SELECT close FROM candles WHERE symbol = ? AND timeframe = '5m' AND open_time + ? <= ? AND open_time + ? > ?"
+                " ORDER BY open_time DESC LIMIT 1", (REFERENCE, M5_MS, t, M5_MS + M15_MS, t)).fetchone()
+            return row[0] if row and row[0] else None
+        now, before = close(at), close(at - hours * 3_600_000)
+        return now / before - 1 if now and before else None
+
+    def _chart_4h(self, symbol: str, at: int) -> int | None:
+        """Direction (+1 / -1) of a 4h chart-pattern breakout in the last CHART_BARS closed 4h candles at `at` (the
+        newest one wins), 0 for none, None without enough candles. Built from the 15m candles, once per 4h candle."""
+        last = at // H4_MS * H4_MS  # the newest closed 4h candle ends here
+        key = (symbol, last)
+        if key not in self._charts:
+            rows = self.conn.execute(
+                "SELECT open_time, open, high, low, close FROM candles WHERE symbol = ? AND timeframe = '15m'"
+                " AND open_time >= ? AND open_time < ? ORDER BY open_time",
+                (symbol, last - CHART_DAYS * 86_400_000, last)).fetchall()
+            bars: dict[int, list[float]] = {}
+            for t, o, h, lo, c in rows:  # 4h candles from UTC midnight, as in the research
+                b = bars.get(t // H4_MS)
+                if b is None:
+                    bars[t // H4_MS] = [o, h, lo, c]
+                else:
+                    b[1], b[2], b[3] = max(b[1], h), min(b[2], lo), c
+            if len(bars) < 80 or max(bars) != last // H4_MS - 1:
+                self._charts[key] = None
+            else:
+                arr = np.array([bars[k] for k in sorted(bars)], dtype=float)
+                bull, bear = chart_patterns.breakout_masks(arr[:, 0], arr[:, 1], arr[:, 2], arr[:, 3], include_last=True)
+                self._charts[key] = 0
+                for j in range(1, CHART_BARS + 1):
+                    if bull[-j] != bear[-j]:
+                        self._charts[key] = 1 if bull[-j] else -1
+                        break
+        return self._charts[key]
+
+    def _quality(self, symbol: str, side: str, at: int) -> tuple[str, str | None, float | None, int | None, float | None]:
+        """Quality tier of a trade decided at `at`, its reasons, the 4-hour open interest change, the 4h chart
+        breakout direction and BTC's change over settings.quality.btc_move_hours. "A" when one of the reasons that
+        settings.quality turns on holds:
+        - trendline: the 15m chart showed a same-direction Trendline breakout in the last QUALITY_BARS closed candles
+          (research 2026-10-18: those trades won 66% at +0.59R against +0.23R)
+        - open_interest: open interest rose more than OI_RISE in the 4 hours before (research 2026-10-19: +0.63R
+          against +0.22R, and +0.04R against -0.22R on the skipped signals)
+        - chart_4h: a 4h chart-pattern breakout in the trade's direction in the last CHART_BARS closed 4h candles
+        - btc_move: BTC moved at least that share the trade's way over btc_move_hours (research 2026-10-24)
+        else "B". The 4h breakout and BTC's change are recorded on every trade either way."""
+        q = self.settings.quality
         field = "long" if side == "long" else "short"
+        sign = 1 if side == "long" else -1
         reasons = []
-        for row in self.conn.execute(
-            "SELECT bar_time, values_json FROM snapshots WHERE symbol = ? AND timeframe = '15m' AND problems_json IS NULL"
-            " AND bar_time >= ? AND bar_time + ? <= ? ORDER BY bar_time DESC, signal_version DESC",
-            (symbol, at - QUALITY_BARS * M15_MS, M15_MS, at),
-        ):
-            if ((json.loads(row["values_json"]).get("trendline") or {}).get(field)) == 1:
-                reasons.append(f"15m trendline {field} breakout at {time.strftime('%H:%M', time.gmtime(row['bar_time'] / 1000))} UTC")
-                break
+        if q.trendline:
+            for row in self.conn.execute(
+                "SELECT bar_time, values_json FROM snapshots WHERE symbol = ? AND timeframe = '15m' AND problems_json IS NULL"
+                " AND bar_time >= ? AND bar_time + ? <= ? ORDER BY bar_time DESC, signal_version DESC",
+                (symbol, at - QUALITY_BARS * M15_MS, M15_MS, at),
+            ):
+                if ((json.loads(row["values_json"]).get("trendline") or {}).get(field)) == 1:
+                    reasons.append(f"15m trendline {field} breakout at {time.strftime('%H:%M', time.gmtime(row['bar_time'] / 1000))} UTC")
+                    break
         oi = self._oi_change(symbol, at)
-        if oi is not None and oi > OI_RISE:
+        if q.open_interest and oi is not None and oi > OI_RISE:
             reasons.append(f"open interest {oi:+.1%} in the last 4 h")
-        return ("A" if reasons else "B"), "; ".join(reasons) or None, oi
+        chart = self._chart_4h(symbol, at)
+        if q.chart_4h and chart == sign:
+            reasons.append("4h chart-pattern breakout the trade's way")
+        btc = self._btc_change(at, q.btc_move_hours)
+        if q.btc_move and btc is not None and sign * btc >= q.btc_move:
+            reasons.append(f"BTC {btc:+.1%} in the last {q.btc_move_hours} h")
+        return ("A" if reasons else "B"), "; ".join(reasons) or None, oi, chart, btc
 
     def _open_trade(
         self, v: Variant, setup: sqlite3.Row, symbol: str, tf: str, row: sqlite3.Row,
@@ -466,11 +526,15 @@ class SetupEngine:
             low, high = p.filters.fear_greed_extremes
             if not low <= fear_greed <= high:
                 failed.append("fear_greed")
+        if p.filters.btc_against_pct:
+            against = self._btc_change(order_time, p.filters.btc_against_hours)
+            if against is not None and -sign * against >= p.filters.btc_against_pct / 100:
+                failed.append("btc_against")
 
         mode = p.exit.mode
         if mode == "htf_rule":
             mode = "hybrid" if htf["1h"] == trend and htf["4h"] == trend else "fixed"
-        quality, quality_reason, oi_change = self._quality(symbol, side, order_time)
+        quality, quality_reason, oi_change, chart_4h, btc_change = self._quality(symbol, side, order_time)
         sqz_fire, sqz_momentum = self._squeeze(symbol, tf, side, row["bar_time"])
         context = {
             "values": values,
@@ -486,6 +550,8 @@ class SetupEngine:
             "sqz_momentum": sqz_momentum,
             "btc_move_5m": btc_move,  # BTC's biggest 5m move in the hour before the decision (None without its candles)
             "fear_greed": fear_greed,  # the Fear & Greed Index known at the decision
+            "chart_4h": chart_4h,  # +1/-1: a 4h chart-pattern breakout up/down in the last 2 closed 4h candles; 0 none
+            "btc_change": btc_change,  # BTC's change over settings.quality.btc_move_hours before the decision
         }
         if dip is not None:
             context["dip_entry"] = {"minutes": (dip[0] - order_time) // MINUTE_MS, "dip_found": dip[1], "missed": dip_missed}

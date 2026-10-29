@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 from typing import Literal
 
@@ -176,6 +177,31 @@ class GoalConfig(_Section):
     min_profit_factor: float = Field(gt=0)
     max_drawdown: float = Field(gt=0, lt=1)
     min_snapshot_coverage: float = Field(gt=0, le=1)
+    # Count the baseline's trades (and the days and the live preview) from this UTC date, YYYY-MM-DD, instead of the
+    # demo account's start. Trades from before the account started count once they are imported from a replay of
+    # the agent's own TradingView data (tradeagent import-replay). None = from the account's start.
+    count_from: str | None = None
+
+    @field_validator("count_from")
+    @classmethod
+    def _date(cls, value: str | None) -> str | None:
+        if value:
+            time.strptime(value, "%Y-%m-%d")  # raises ValueError on a bad date
+        return value or None
+
+
+class QualityConfig(_Section):
+    """Reasons that make a trade quality A (the demo account risks paper_account.risk_tier_a on it).
+
+    Research 2026-10-24 (research/notes/2026-10-24-patterns-per-coin-plan.md): on XRP/SOL/ETH, in two replays, a 4h
+    chart-pattern breakout in the trade's direction (+0.20R to +0.27R against +0.04R) and BTC moving 2%+ the trade's way
+    over the 12 h before the decision (+0.14R to +0.19R against +0.04R) held up; neither did on other coins."""
+
+    trendline: bool = True  # a same-direction 15m Trendline breakout in the last 2 hours
+    open_interest: bool = True  # open interest up more than 1% in the 4 hours before the decision
+    chart_4h: bool = False  # a 4h chart-pattern breakout in the trade's direction in the last 2 closed 4h candles
+    btc_move: float | None = Field(default=None, gt=0, le=0.2)  # BTC moved this share the trade's way (None = off)
+    btc_move_hours: int = Field(default=12, ge=1, le=48)
 
 
 class LiveAccountConfig(PaperAccountConfig):
@@ -263,6 +289,7 @@ class Settings(_Section):
         starting_balance=150, risk_per_trade=0.02, max_positions=2, max_positions_per_coin=1,
         daily_loss_stop=0.10, leverage_cap=10))
     goal: GoalConfig
+    quality: QualityConfig = Field(default_factory=QualityConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     alerts: AlertsConfig = Field(default_factory=AlertsConfig)

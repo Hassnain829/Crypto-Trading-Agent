@@ -67,15 +67,16 @@ def test_a_saved_setting_is_validated_audited_and_applied(world, repo_root):
     reset_value(conn, fresh, load_settings(repo_root), "paper_account.max_positions")
     again = load_settings(repo_root)
     apply_overrides(again, conn)
-    assert again.paper_account.max_positions is None and "reset" in audit_log(conn)[0]["source"]
+    assert again.paper_account.max_positions == load_settings(repo_root).paper_account.max_positions  # the file's value
+    assert "reset" in audit_log(conn)[0]["source"]
 
 
 def test_the_account_engine_uses_settings_changed_while_it_runs(world):
     conn, settings = world
     engine = AccountEngine(settings, conn)
-    set_value(conn, settings, "paper_account.max_positions", 1)
+    set_value(conn, settings, "paper_account.max_positions", 3)
     apply_overrides(settings, conn)
-    assert engine.rules.max_positions == 1
+    assert engine.rules.max_positions == 3
 
 
 def test_bad_overrides_in_the_journal_are_skipped(world):

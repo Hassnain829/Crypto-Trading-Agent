@@ -1,0 +1,9 @@
+[
+  {
+    "name": "stop_mult_080_v4",
+    "change": { "path": "stop.multiplier", "value": 0.8 },
+    "hypothesis": "On the previous baseline stop.multiplier 0.8 was better in both halves (+0.224R vs +0.198R, +0.370R vs +0.320R, same PF 1.56) and failed only the 0.05R bar (+0.038R); its lesson asked for a long-history check before any re-proposal, and the judge now screens on the 3-year long history too. On v4 the wider side is closed (stop_mult_120: +0.217R vs +0.264R) and 0.75 was past the peak, so 0.8 is the one untested point on the side the old data favoured. The v4 baseline enters on a 5m dip, so the entry already sits nearer the swing: the stop's last 20% should be hit less often than on the old market-after-close entry. Pack: the 2 forward stops (#21430, #21540) were both -1.05 to -1.09R full losses; a smaller stop shrinks the cost of each of these while the 3 targets (+1.16R avg) pay more R.",
+    "expected": "About the same trade count, slightly lower win rate, expectancy about +0.30R vs +0.264R on the TradingView history; it passes only if the gain is at least 0.05R and holds on the 3-year history",
+    "confidence": 0.2
+  }
+]

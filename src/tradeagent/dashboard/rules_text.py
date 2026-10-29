@@ -31,6 +31,9 @@ def describe(p: dict[str, Any]) -> list[tuple[str, str]]:
         filters.append("the chart's own Zero Lag trend must agree")
     if f.get("btc_shock_wait_minutes"):
         filters.append(f"no entry for {f['btc_shock_wait_minutes']} min after BTC moved {f.get('btc_shock_pct', 2):g}%+ in 5m")
+    if f.get("btc_against_pct"):
+        filters.append(f"skip signals against a {f['btc_against_pct']:g}%+ BTC move over the last "
+                       f"{f.get('btc_against_hours', 12)} h")
     if f.get("fear_greed_extremes"):
         lo, hi = f["fear_greed_extremes"]
         filters.append(f"no entry when the Fear & Greed Index is below {lo} or above {hi}")

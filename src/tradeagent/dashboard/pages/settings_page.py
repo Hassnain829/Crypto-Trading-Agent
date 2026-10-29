@@ -87,7 +87,7 @@ def _from_input(f: EditableField, value: Any, all_coins: list[str] | None = None
     if f.kind == "coins":  # every coin (or none picked) = no restriction
         picked = [c for c in (all_coins or []) if c in (value or [])]
         return None if not picked or picked == all_coins else picked
-    if f.kind in ("optint", "optpercent") and (value is None or value == ""):
+    if f.kind in ("optint", "optpercent", "date") and (value is None or value == ""):
         return None
     if f.kind in ("percent", "optpercent"):
         return round(float(value) / 100, 6)
@@ -117,6 +117,9 @@ def form_group(store: Store, title: str, fields: list[EditableField]) -> dict[st
                         el = ui.select(options, value=value, label=f.label).classes("w-full")
                     elif f.kind == "time":
                         el = ui.input(f.label, value=value).props("mask='##:##'").classes("w-full")
+                    elif f.kind == "date":
+                        el = ui.input(f.label, value=value, placeholder="YYYY-MM-DD").props(
+                            "mask='####-##-##' clearable").classes("w-full")
                     elif f.kind == "coins":
                         coins = list(settings.exchange.symbols)
                         el = ui.select(coins, value=value or coins, label=f.label, multiple=True).classes("w-full").props(

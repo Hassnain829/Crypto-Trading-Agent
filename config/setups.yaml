@@ -7,6 +7,10 @@
 #                    Positive in all four sub-periods of the ~100-day history; must hold on fresh data.
 #   See docs/research/2026-10-03-strategy-review.md.
 #   v3, v3.1 (2026-10-04): the v2 rules on XRP, SOL and ETH (the coins are chosen in settings.yaml).
+#   v4 (2026-10-24, approved by the user): one decision per coin. Only 15m signals (5m signals lost every year), the
+#                    limit entry waits up to 60 min for the first 5m candle against the trade, and signals against a
+#                    2%+ BTC move over the last 12 h are skipped. With the account rules in settings.yaml: 4 years
+#                    +1,089% (DD 60%) vs +807% for v3.1's rules; research/notes/2026-10-24-patterns-per-coin-plan.md.
 # Every variant changes exactly ONE thing from the baseline.
 # All of them run in parallel on the same signals in the exploration book. Changing a variant's rules
 # gives it a new id automatically, and the agent picks up changes to this file in its next cycle.
@@ -18,7 +22,7 @@
 # Retired variants and why: research/lessons.md and research/results.tsv.
 
 baseline:
-  timeframes: ["5m", "15m"]
+  timeframes: ["15m"]
   trigger:
     indicator: qtrend        # qtrend | zerolag | atp_macd
     long: buy                # flag field (config/indicators.yaml) that starts a long setup
@@ -34,8 +38,11 @@ baseline:
     min_stop_pct: 1.5        # skip setups whose swing stop is closer than this % of the entry
     zl_own: false            # the signal must agree with its own chart's Zero Lag trend
     session_utc: null        # [start, end): only entries whose UTC hour is inside
+    btc_against_pct: 2.0     # skip signals against a BTC move of at least this % over the last btc_against_hours
+    btc_against_hours: 12
   entry:
     mode: limit              # market (taker + slippage) | limit (maker; fills only if the first minute trades through)
+    dip_5m_minutes: 60       # wait up to this long for the first 5m candle that closes against the trade, then enter
   stop:
     lookback: 10             # lowest low (long) / highest high (short) of the last N candles, confirming candle included
     anchor: trade            # trade | 1h: also beyond the last N closed 1h candles
@@ -58,13 +65,8 @@ variants:
   # min_stop_2pct, confirm_0, stop_1h_swing, trigger_strong.
   # filter_vwap was retired on 2026-10-20: +0.172R on 36 forward trades against the baseline's +0.346R, and the
   # Squeeze Momentum study replaced VWAP on the AGENT charts (TradingView Essential allows 5 studies a chart).
-  market_entry:     {entry: {mode: market}}               # what the limit entry is worth on fresh data
-  session_13_21:    {filters: {session_utc: [13, 21]}}    # US session, 18:00-02:00 Pakistan time (strongest candidate)
-  session_07_21:    {filters: {session_utc: [7, 21]}}     # Europe + US, 12:00-02:00 Pakistan time
-  htf_against_4h:   {filters: {htf: against_4h}}
-  tf_15m:           {timeframes: ["15m"]}
-  trend15:          {filters: {trend_15m: true}}          # 5m signals only with the 15m trend (research 2026-10-04: +0.276R on XRP SOL ETH, steadiest)
-  # 2026-10-21 (approved by the user): the planned new baseline in its shadow test. Only 15m signals, and the limit
-  # entry waits up to 60 minutes for the first 5m candle that closes against the trade (planned stop and target).
-  # 4 years with the agent's own engine and the planned account rules: +773% vs +508% entering at once, both halves.
-  dip15:            {timeframes: ["15m"], entry: {dip_5m_minutes: 60}}
+  # Retired with v4 on 2026-10-24: market_entry, session_13_21, session_07_21, htf_against_4h, tf_15m, trend15 (all
+  # negative over 3 years with the agent's engine) and dip15 (now the baseline). The forward checks of v4's parts:
+  news_filters:     {filters: {btc_shock_wait_minutes: 60, fear_greed_extremes: [20, 80]}}  # 4 years better, June 2026 worse
+  no_dip:           {entry: {dip_5m_minutes: 0}}          # entering at once: what the 5m dip entry is worth
+  no_btc_skip:      {filters: {btc_against_pct: 0}}       # what skipping signals against BTC's move is worth

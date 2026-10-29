@@ -25,7 +25,7 @@ PREFIX = "cfg:"
 class EditableField:
     path: str  # section.key in settings.yaml
     label: str
-    kind: str  # money | percent | optpercent | int | optint | float | bool | select | time | coins
+    kind: str  # money | percent | optpercent | int | optint | float | bool | select | time | date | coins
     help: str = ""
     live: bool = True  # takes effect in the next agent cycle (False: on the next agent start)
     choices: tuple[str, ...] = field(default_factory=tuple)
@@ -92,6 +92,10 @@ FIELDS: tuple[EditableField, ...] = (
     EditableField("goal.min_profit_factor", "Profit factor", "float", step=0.05),
     EditableField("goal.max_drawdown", "Max drawdown", "percent", "Checked on the live preview."),
     EditableField("goal.min_snapshot_coverage", "Snapshot coverage", "percent", "Live TradingView reads in the last 7 days."),
+    EditableField("goal.count_from", "Count trades from (UTC date)", "date",
+                  "Count the strategy's trades, days and live preview from this date (YYYY-MM-DD) instead of the demo "
+                  "account's start. Earlier trades count once imported from a replay (tradeagent import-replay). "
+                  "Empty = from the account's start."),
     EditableField("tradingview.draw_trades", "Draw demo trades on the charts", "bool",
           "Entry, stop, target and result on the AGENT charts, synced to every layout."),
     EditableField("tradingview.timezone", "Time zone", "select",
@@ -120,6 +124,16 @@ FIELDS: tuple[EditableField, ...] = (
     EditableField("learning.screen_on_long_history", "Screen proposals on 4 years", "bool",
           "After the stored history, a proposal must also beat the baseline in both halves of the 4-year research "
           "history (about an hour, in the background). Short histories cannot tell a good rule from a lucky period."),
+    EditableField("quality.trendline", "15m Trendline breakout", "bool",
+                  "A same-direction 15m Trendline breakout in the last 2 hours makes a trade quality A."),
+    EditableField("quality.open_interest", "Open interest rising", "bool",
+                  "Open interest up more than 1% in the 4 hours before makes a trade quality A."),
+    EditableField("quality.chart_4h", "4h chart-pattern breakout", "bool",
+                  "A 4h chart-pattern breakout (double/triple top or bottom, head and shoulders, triangle, wedge, "
+                  "rectangle, flag) in the trade's direction in the last 2 closed 4h candles makes it quality A."),
+    EditableField("quality.btc_move", "BTC moved the trade's way", "optpercent",
+                  "BTC up (for longs) or down (for shorts) at least this much over the last 12 hours makes a trade "
+                  "quality A. Empty = off."),
     EditableField("research.enabled", "Daily research run", "bool", "Claude studies the journal once a day (Phase 5)."),
     EditableField("research.daily_time_utc", "Research time (UTC)", "time"),
     EditableField("alerts.enabled", "Phone alerts", "bool",
@@ -139,6 +153,7 @@ GROUPS = {
     _LIVE: [f for f in FIELDS if f.path.startswith("live_account.")],
     "Costs (apply when the agent restarts)": [f for f in FIELDS if f.path.startswith("costs.")],
     "Go-live gate": [f for f in FIELDS if f.path.startswith("goal.")],
+    "Quality tier A (the demo risks 'Risk on quality-A trades' on these)": [f for f in FIELDS if f.path.startswith("quality.")],
     "TradingView": [f for f in FIELDS if f.path.startswith("tradingview.")],
     "Research": [f for f in FIELDS if f.path.startswith("research.") or f.path.startswith("learning.")],
     "Trading exchange (applies when the agent restarts)": [f for f in FIELDS if f.path.startswith("exchange.")],

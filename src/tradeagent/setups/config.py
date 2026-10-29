@@ -49,6 +49,11 @@ class FilterParams(_Strict):
     btc_shock_wait_minutes: int = Field(default=0, ge=0, le=720)
     btc_shock_pct: float = Field(default=2.0, gt=0, le=20)
     fear_greed_extremes: tuple[int, int] | None = None
+    # Research 2026-10-24 (research/notes/2026-10-24-patterns-per-coin-plan.md): skipping signals against a 2%+ BTC
+    # move over the 12 h before the decision lowered the drawdown in every data set (4 years 62.7% -> 57.3%). Skip a
+    # signal when BTC moved at least btc_against_pct against it over btc_against_hours (0 = off).
+    btc_against_pct: float = Field(default=0.0, ge=0, le=20)
+    btc_against_hours: int = Field(default=12, ge=1, le=48)
 
     @field_validator("fear_greed_extremes")
     @classmethod
@@ -134,7 +139,8 @@ class SetupParams(_Strict):
 ADDED_LATER: dict[tuple[str, str], Any] = {
     ("entry", "limit_minutes"): 1, ("entry", "offset_r"): 0.0, ("filters", "trend_15m"): False,
     ("stop", "min_pct"): None, ("entry", "dip_5m_minutes"): 0, ("filters", "btc_shock_wait_minutes"): 0,
-    ("filters", "btc_shock_pct"): 2.0, ("filters", "fear_greed_extremes"): None,
+    ("filters", "btc_shock_pct"): 2.0, ("filters", "fear_greed_extremes"): None, ("filters", "btc_against_pct"): 0.0,
+    ("filters", "btc_against_hours"): 12,
 }
 
 

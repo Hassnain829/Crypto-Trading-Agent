@@ -1,0 +1,37 @@
+[
+  {
+    "name": "macd_trend_filter",
+    "change": { "path": "filters.macd_trend", "value": true },
+    "hypothesis": "The ATP MACD line on the trade's side of zero acts as a momentum-quality gate. The pack shows 14 skipped setups averaged -0.419R each: quality filters remove bad trades. The pack breakdown shows 1h+4h-with trades won 100% and 1h+4h-against lost 100% (2 trades). MACD trend, though a different indicator, tests whether a shorter-horizon momentum confirmation works as a comparable quality gate without the half-1 regime flip seen in ZL-based filters.",
+    "expected": "Fewer trades (maybe 20-30% fewer), higher win rate, expectancy above +0.314R",
+    "confidence": 0.22
+  },
+  {
+    "name": "confirm_window_2",
+    "change": { "path": "confirmation.window", "value": 2 },
+    "hypothesis": "Removing only the 3rd-candle confirmations (window 3 -> 2) tests whether late-arriving confirmations on the v4 baseline (with 5m dip entry adding its own timing) are useful. Window=0 was worse because it removed ALL delayed confirmations. Window=2 removes only the latest subset. The 1 losing trade (SOL -1.09R) first reached +0.5R then reversed, consistent with a late-confirmation entry. Trimming window to 2 removes the most delayed entries while keeping most confirming candles.",
+    "expected": "Small reduction in trade count, slightly higher average quality, expectancy above +0.314R",
+    "confidence": 0.25
+  },
+  {
+    "name": "entry_offset_01",
+    "change": { "path": "entry.offset_r", "value": 0.1 },
+    "hypothesis": "A 0.1R limit offset (placing the entry 10% of stop distance back from the close) improves the fill price without removing trades. This is not a filter: unlike htf or zl_own, it does not skip any setups — it only adjusts the entry price. The 5m dip entry already selects a good timing; a 0.1R offset adds selection within that window for trades where the price gives a small additional pause. From lessons: 0.25-0.5R offsets missed 40-73% of trades, but 0.1R is much smaller and should miss very few fills while improving average R.",
+    "expected": "Near-identical trade count, slightly better entry price, expectancy above +0.314R",
+    "confidence": 0.30
+  },
+  {
+    "name": "htf_1h_4h",
+    "change": { "path": "filters.htf", "value": "1h+4h" },
+    "hypothesis": "Requiring both 1h and 4h ZL trends to agree with the trade direction captures the most directionally confirmed setups. The pack shows the baseline's 1h+4h-with trade won (100%) and the 1h+4h-against trade lost (0%). Although htf=1h alone fails (half 1 +0.083R < +0.109R), htf=1h+4h is a stricter and different filter: it may remove poor-quality half-1 trades while keeping the strong ones. The two trials (zl_own, htf=1h) show the 1h filter cuts too many good half-1 trades; 1h+4h might be even more selective but targets a higher-quality subset.",
+    "expected": "About 30-40 trades in history, both halves positive and above baseline per-trade, expectancy above +0.314R",
+    "confidence": 0.18
+  },
+  {
+    "name": "stop_mult_120",
+    "change": { "path": "stop.multiplier", "value": 1.2 },
+    "hypothesis": "A wider stop (1.2x the swing) is the opposite direction from the two tested narrower values (0.75 and 0.8). The pack shows 1 stopped trade that first reached +0.5R; from lessons, 43-46% of all stopped trades historically first reached +0.5R. A 20% wider stop gives those near-misses more room. The stop_1h_swing test showed wider stops have higher win rate (56% vs 52%); on the v4 baseline the 5m dip entry already places us slightly inside the move, so the 1.0x swing may be modestly tight. Unlike the tested 0.8x (which shrinks R per trade), 1.2x enlarges R but may save a meaningful fraction of trades that would otherwise stop out just beyond the swing.",
+    "expected": "Higher win rate, lower R per win, net expectancy above +0.314R if saved stops more than offset the wider loss size",
+    "confidence": 0.20
+  }
+]

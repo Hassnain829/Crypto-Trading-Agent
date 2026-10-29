@@ -1,6 +1,7 @@
 """Paper account: sizing and risk rules, event order, daily stop, kill switch, consistency with exploration."""
 
 import json
+import time
 
 import pytest
 
@@ -331,11 +332,15 @@ def test_no_limits_means_every_signal_is_taken(settings):
     assert check_entry(symbol="XRP", open_positions=[], balance=150.0, **{**base, "kill_switch": "pause"}) == "kill switch is pause"
 
 
-def test_the_configured_demo_account_has_no_trade_limits(repo_root):
+def test_the_configured_demo_account_makes_one_decision_per_coin(repo_root):
     from tradeagent.config import load_settings
 
-    rules = load_settings(repo_root).paper_account
-    assert (rules.max_positions, rules.max_positions_per_coin, rules.daily_loss_stop) == (None, None, None)
+    settings = load_settings(repo_root)
+    for rules in (settings.paper_account, settings.live_account):
+        assert (rules.max_positions, rules.max_positions_per_coin, rules.allow_opposite, rules.first_position_always) \
+            == (5, 2, False, True)
+    assert settings.paper_account.daily_loss_stop is None
+    assert (settings.paper_account.risk_per_trade, settings.paper_account.risk_tier_a) == (0.02, 0.03)
 
 
 def test_the_account_and_the_gate_use_only_the_traded_coins(world):
@@ -493,3 +498,42 @@ def test_the_account_waits_for_a_chart_that_waits_for_a_dip_entry(world):
         conn.execute("UPDATE engine_state SET value = ? WHERE key = 'engine:SOL:15m:dip'", (str(start + 3 * H),))
     engine.process()
     assert paper(conn, sol)["status"] == "open" and paper(conn, later)["status"] == "open"  # in entry order, none late
+
+
+def test_the_gate_counts_from_count_from_with_imported_replay_trades(world, tmp_path):
+    from tradeagent.account.gate_import import import_replay
+
+    conn, settings = world
+    reset_account(conn, settings, from_now=True)
+    start = conn.execute("SELECT started_at FROM account_state").fetchone()[0]
+    replay = connect(tmp_path / "replay.db")  # a replay with the baseline's rules (same params hash)
+    migrate(replay)
+    replay.execute("INSERT INTO variants (id, params_json, params_hash, role, parent, created_at)"
+                   " VALUES ('new-aaaaaa', '{}', 'a', 'baseline', NULL, 0)")
+    replay.commit()
+    add_trade(replay, "XRP", "long", start - 5 * DAY, 2.0, 1.98, start - 5 * DAY + 30 * M1, target=True, variant="new-aaaaaa")
+    add_trade(replay, "SOL", "short", start - 3 * DAY, 150.0, 151.5, start - 3 * DAY + 40 * M1, 151.5, variant="new-aaaaaa")
+    replay.close()
+    vid, n = import_replay(conn, tmp_path / "replay.db")
+    assert (vid, n) == (f"replay-{BASELINE}", 2)
+    assert conn.execute("SELECT role FROM variants WHERE id = ?", (vid,)).fetchone()[0] == "retired"
+    assert account_report(conn, settings)["strategy_trades"] == 0  # from the account's start
+    settings.goal.count_from = time.strftime("%Y-%m-%d", time.gmtime((start - 7 * DAY) / 1000))
+    report = account_report(conn, settings)
+    gate = {c["name"]: c["value"] for c in report["gate"]}
+    assert report["strategy_trades"] == 2 and gate["live preview net PnL > 0"].endswith("(2 trades)")  # same rules count
+    AccountEngine(settings, conn).process()
+    assert conn.execute("SELECT count(*) FROM account_trades").fetchone()[0] == 0  # the demo never takes them
+    assert import_replay(conn, tmp_path / "replay.db") == (vid, 2)  # a new import replaces the old one
+    assert conn.execute("SELECT count(*) FROM trades WHERE variant_id = ?", (vid,)).fetchone()[0] == 2
+
+
+def test_count_from_must_be_a_date(settings):
+    from pydantic import ValidationError
+
+    from tradeagent.config import GoalConfig
+
+    data = settings.goal.model_dump()
+    assert GoalConfig.model_validate({**data, "count_from": "2026-08-01"}).count_from == "2026-08-01"
+    with pytest.raises(ValidationError):
+        GoalConfig.model_validate({**data, "count_from": "1 Aug"})
