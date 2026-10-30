@@ -5,7 +5,8 @@ from __future__ import annotations
 from nicegui import ui
 
 from tradeagent.dashboard.data import Store
-from tradeagent.dashboard.widgets import card, chart, column, empty, line_options, palette, tz_label, when
+from tradeagent.dashboard.widgets import (card, chart, column, empty, lazy_tab_panels, line_options, palette, set_rows,
+                                          tab_shown, tz_label, when)
 
 
 def build(store: Store) -> None:
@@ -17,20 +18,15 @@ def build(store: Store) -> None:
         t_logs, t_events, t_quality = ui.tab("Agent log", icon="terminal"), ui.tab("Events", icon="notifications"), ui.tab(
             "Data quality", icon="fact_check")
         t_res, t_ind = ui.tab("Resources", icon="memory"), ui.tab("Indicator settings", icon="tune")
-    with ui.tab_panels(tabs, value=t_logs).classes("w-full bg-transparent"):
-        with ui.tab_panel(t_logs).classes("p-0"):
-            logs_panel(store)
-        with ui.tab_panel(t_events).classes("p-0"):
-            events_panel(store)
-        with ui.tab_panel(t_quality).classes("p-0 gap-4"):
-            quality_panel(store)
-        with ui.tab_panel(t_res).classes("p-0"):
-            resources_panel(store)
-        with ui.tab_panel(t_ind).classes("p-0"):
-            indicators_panel(store)
+    # Each tab is built when first opened, and its timer works only while it is shown.
+    lazy_tab_panels(tabs, [(t_logs, lambda: logs_panel(store, tab_shown(tabs, t_logs)), "p-0"),
+                           (t_events, lambda: events_panel(store, tab_shown(tabs, t_events)), "p-0"),
+                           (t_quality, lambda: quality_panel(store), "p-0 gap-4"),
+                           (t_res, lambda: resources_panel(store), "p-0"),
+                           (t_ind, lambda: indicators_panel(store), "p-0")], t_logs)
 
 
-def logs_panel(store: Store) -> None:
+def logs_panel(store: Store, visible=lambda: True) -> None:
     with card("Agent log", "data/logs/agent.log, newest first", classes="w-full"):
         with ui.row().classes("items-center gap-3"):
             level = ui.select(["DEBUG", "INFO", "WARNING", "ERROR"], value="INFO", label="Level").classes("w-36")
@@ -47,10 +43,10 @@ def logs_panel(store: Store) -> None:
         level.on_value_change(lambda _: load())
         search.on_value_change(lambda _: load())
         load()
-        ui.timer(5.0, lambda: follow.value and load())
+        ui.timer(5.0, lambda: follow.value and visible() and load())  # unchanged text sends nothing
 
 
-def events_panel(store: Store) -> None:
+def events_panel(store: Store, visible=lambda: True) -> None:
     with card("Events", "Warnings and errors the agent recorded in the journal, plus watchdog actions", classes="w-full"):
         with ui.row().classes("items-center gap-3"):
             level = ui.select({None: "All levels", "INFO": "Info", "WARNING": "Warning", "ERROR": "Error"}, value=None,
@@ -63,13 +59,12 @@ def events_panel(store: Store) -> None:
             "w-full").props("flat dense")
 
         def load() -> None:
-            table.rows = [{"id": i, "time": when(e["ts"]), "level": e["level"], "source": e["source"], "message": e["message"]}
-                          for i, e in enumerate(store.events(level.value, source.value))]
-            table.update()
+            set_rows(table, [{"id": i, "time": when(e["ts"]), "level": e["level"], "source": e["source"],
+                              "message": e["message"]} for i, e in enumerate(store.events(level.value, source.value))])
         level.on_value_change(lambda _: load())
         source.on_value_change(lambda _: load())
         load()
-        ui.timer(10.0, load)
+        ui.timer(10.0, lambda: visible() and load())
 
 
 def quality_panel(store: Store) -> None:
@@ -90,8 +85,7 @@ def quality_panel(store: Store) -> None:
                              "coverage": f"{r['ok'] / expected * 100:.1f}%" if expected else "–",
                              "p50": f"{r['latency_p50_s']:.1f} s" if r.get("latency_p50_s") is not None else "–",
                              "p95": f"{r['latency_p95_s']:.1f} s" if r.get("latency_p95_s") is not None else "–"})
-            table.rows = rows
-            table.update()
+            set_rows(table, rows)
         hours.on_value_change(lambda _: load())
         load()
     with card("Candle gaps", f"Missing {store.settings.venue} 1m candles in the last 48 hours (repaired automatically "

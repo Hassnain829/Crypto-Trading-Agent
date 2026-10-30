@@ -424,3 +424,77 @@ A 1.2x wider stop earns less per trade (+0.217R vs +0.264R, PF 1.53 vs 1.58), co
 ## 2026-10-29 · stop_mult_080_v4 · {"stop":{"multiplier":0.8}}
 (auto) Rejected on history before any forward trade: expectancy +0.299R is not 0.05R above the baseline's +0.268R; profit factor 1.57 below the baseline's 1.59; max drawdown 12.3R vs 9.5R; half 2: +0.394R, below the baseline's +0.396R
 A 0.8 stop on v4 gains only +0.031R (+0.299R vs +0.268R), with PF 1.57 vs 1.59, DD 12.3R vs 9.5R and half 2 just below (+0.394R vs +0.396R). On the old baseline the same change was +0.038R and better in both halves; with the 5m dip entry the gain shrank and the second half no longer improves. The dip entry already takes most of what a tighter stop gave: the extra R per win is offset by more stop-outs and a deeper drawdown. Now tested on two baselines, short of the bar both times: stop.multiplier stays 1.0; do not tune it again (0.75, 0.8 and 1.2 all fail).
+
+## 2026-10-29: wider stops and the dip entry (research/notes/2026-10-29-stop-and-dip.md)
+- Only 22% of v4's stops since 1 Aug (11 of 51) reached the target within the 72 h hold. They needed a median 2.4x stop. In 78% the price never came back to the entry within 24 h.
+- Wider stops with the same target lose money on both samples:
+  - since 1 Aug, demo from $150: 1.25x $326, 1.5x $281, 2x $226, vs $391 at 1x
+  - 4 years: +0.037R at 1x, +0.034R at 1.25x, +0.028R at 1.5x, +0.016R at 2x
+  - A wider stop with a wider target is worse still.
+  - **Do not propose wider stops again.**
+- No dip since 1 Aug: +0.302R vs +0.328R, demo $409 vs $391, a draw. The dip stays (4 years +773% vs +508%); the no_dip challenger decides forward.
+
+## 2026-10-29: engine 2 and the daily trend, tested again (research/notes/2026-10-29-engines.md)
+- A wider stop with a bigger position is just more % risk. At equal risk, today's stop wins. More risk than 2% / 3% adds little over 4 years (DD 70-80%).
+- Engine 2 re-run on 1m with the agent's rules:
+  - 4 years +0.064R (halves +0.032R / +0.093R), but since 1 Aug -0.064R (68 trades)
+  - in the account, 2022-24 ended below v4 alone
+  - Shadow at most.
+- The daily Donchian 20/10 long-only as its own part of the account, 2% a trade, 6% budget:
+  - it beats v4 alone in every window (4 years +2,958% vs +1,215%, both halves, since 1 Aug +169% vs +156%)
+  - the DD is a little higher (63.7% vs 59.7%)
+  - It is the next trade source to build, if the user agrees.
+
+## 2026-10-29: smart targets and early exits, rules and ML (research/notes/2026-10-29-exits-plan.md)
+- The user asked for a target that follows the chart (swing highs/lows, support/resistance) and an exit plan for wrong
+  trades. Tested on v4's 3,054 trades over 4 years and 128 since 1 Aug. The 1m walk matched the tracker on every trade.
+- **Nothing beats the fixed plan** (+0.039R over 4 years, +0.330R since Aug):
+  - support/resistance targets (15m/1h swings; front, extend, both): -0.009 to -0.034R
+  - runners after the target with a +1R/+1.25R lock (ATR or candle trail, whole or half): about 0 over 4 years, worse
+    since Aug
+  - early exits (Q-Trend or Klinger against, BTC 1% against, no progress at 2/4/8 h, a fast move to the stop): all worse
+  - ML (scikit-learn, cross-fitted halves): the exit model's test R2 was negative in every test, and the account ended at
+    $24. The runner and target models were no better than the plan, and worse since Aug.
+- **Why:**
+  - Holding beats exiting in every state at every hour. At 2 h, trades at -0.5R or worse still won 16%: -0.61R if held,
+    -0.69R if exited.
+  - After the target touch the price reached 2R within 24 h in 72%, but it came back to +1R in 75%. It reached 2R before
+    +1R in only 54%: a fair coin.
+- The closest was the no-progress exit at 8 h. It frees account slots ($2,030 vs $1,675 over 4 years), but it is worse in
+  2024-26 per trade and in the account. It fails.
+- **Do not propose these exits or targets again.** Big moves belong to a separate trend engine (the daily Donchian).
+  Wrong trades are a matter for the entry and the sizing.
+- The ML runner's best account ($1,893 vs $1,675) was luck. Running the runner on random touches at the model's rate gave
+  $976-$2,506 (5-95%), and the model's gain per touch equalled the coin flip's (-0.006R). A 4-year account total can swing
+  by about 50% from which trades get the slots: judge versions by the R a trade in both halves.
+
+## 2026-10-29: HMM regimes and volatility sizing, from the ML repo (research/notes/2026-10-29-regime-plan.md)
+- **HMMs on BTC (daily 2 and 3 states, 4h 2 states; fitted on 2020-22; filtered probabilities only):**
+  - The states are sensible (calm 3.8% range days, volatile 12.8%), but trade results by state flip between the halves
+    and since Aug. None passes.
+  - The volatile-state gain disappears inside tier B. It is the BTC 12 h factor that tier A already uses.
+- **Kalman volatility percentile (BTC, coin) and the coin's 24 h against 30 days:** none passes.
+  - Sizing x1.25/x0.75 at the same average risk loses in at least one window every time. The best 4-year account (F6,
+    $2,635 vs $1,675) is worse since Aug.
+  - On new coins (AVAX 4 years, BTC 4 years, ten coins 1.5 years), "calm coins are better" did not replicate. F6 was
+    mixed.
+- **Keep today's sizing. Do not propose HMM or volatility-percentile sizing again.** F6 can be a group the proposed
+  Bayesian scoreboard follows forward.
+
+## 2026-10-29: Bayesian factor scoreboard, walk-forward validation (research/notes/2026-10-29-scoreboard-validation-plan.md)
+- **The 90-day forecasts are about a coin flip** (Brier 0.2544 in 2023-24, 0.2477 in 2024-26, 0.2487 since Aug). Group
+  edges of about 0.1R are far below three months of noise.
+- Learning tier A from zero took two years: P(A > B) was 50% in 2023 and 90% in 2025.
+- **Sizing by it loses** (S1 adaptive tier $1,501, S2 regression picks $1,232, vs $1,675 now). The regression's 3%
+  picks were worse than the fixed tier A even since Aug (+0.442R vs +0.574R).
+- **Not built.** The fixed tier rule stays. Do not propose factor-scoreboard sizing again without a much larger forward
+  sample.
+- Split by coin (research/notes/2026-10-29-per-coin-check.md), every conclusion of 2026-10-29 holds:
+  - No exit, target or ML version beats the plan on any coin over both 4 years and since Aug.
+  - The few coin-and-factor pairs that agree in both halves are about as many as chance gives (4-5 of 18), and each
+    fails since Aug or on other coins.
+  - Tier A beats B on all three coins over 4 years. Do not make per-coin rules from these tests.
+
+## 2026-10-30 · htf_against_4h_v4 · {"filters":{"htf":"against_4h"}}
+(auto) Rejected on history before any forward trade: half 1: +0.064R, below the baseline's +0.184R
+Trading only against the 4h Zero Lag trend passes overall but fails half 1 badly (+0.064R vs +0.184R), the same regime split as zl_own and htf=1h on 10-28: HTF filters help in the strong trending half and hurt in the choppy one. The pack's 10-trade split (4h-against +1.11R vs 4h-with +0.04R) was a regime effect, not an edge. With htf 1h, 1h+4h, against_4h and zl_own all failing half 1 on v4, every filters.htf value and zl_own are now settled on this baseline: do not propose HTF or Zero Lag trend filters again until the history covers several regimes.

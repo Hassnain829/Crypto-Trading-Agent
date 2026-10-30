@@ -9,7 +9,8 @@ from nicegui import ui
 from tradeagent.dashboard.data import Store
 from tradeagent.learning import experiments as ex
 from tradeagent.dashboard.rules_text import describe
-from tradeagent.dashboard.widgets import ago, card, chart, column, empty, palette, pct, rr, signed_slot, when
+from tradeagent.dashboard.widgets import (Section, ago, card, chart, column, empty, lazy_expansion, palette, pct, rr,
+                                          set_rows, signed_slot, when)
 
 STATUS_TEXT = {
     "screening": "replaying the history", "running": "forward test", "reconfirming": "won once · re-confirming",
@@ -68,8 +69,7 @@ def build(store: Store) -> None:
                     ui.label(h["version"]).classes("pill")
                     with ui.column().classes("gap-0 flex-1"):
                         ui.label(h["summary"]).classes("text-sm")
-                        ui.label(f"{when(h['adopted_at'])} · {h['trades']} trades · {rr(h['expectancy_r'])} per trade · "
-                                 f"demo account {h['paper_return_pct']:+.1f}% on that history").classes("muted text-xs")
+                        ui.label(_history_line(h)).classes("muted text-xs")
 
     with ui.row().classes("w-full gap-4 items-stretch"):
         with card("Current baseline", "The rules the demo account trades", classes="flex-1 min-w-[420px]"):
@@ -83,7 +83,7 @@ def build(store: Store) -> None:
             else:
                 empty("No baseline registered yet. Start the agent once.")
         with card("Strength", "How much the current strategy can be trusted", classes="flex-1 min-w-[420px]"):
-            strength_box = ui.column().classes("w-full gap-3")
+            strength_box = Section(ui.column().classes("w-full gap-3"))
 
     exps = store.experiments()
     rules = exps["rules"]
@@ -158,13 +158,15 @@ def build(store: Store) -> None:
     with ui.row().classes("w-full gap-4 items-stretch"):
         with card("Experiment timeline", "Every decision, newest first. Many tests make lucky winners more likely, "
                   "which is why winners must win twice", classes="flex-[3] min-w-[420px]"):
-            timeline_box = ui.column().classes("w-full gap-0")
+            timeline_box = Section(ui.column().classes("w-full gap-0"))
+            timeline_all = {"on": False}  # the newest 10 at first; "Show all" lists every decision
         with card("Research pack", "What Claude reads before it proposes anything (written every day)",
                   classes="flex-[2] min-w-[320px]"):
             if exps["pack"]:
                 ui.label(f"Written {when(exps['pack']['at'])}").classes("muted text-xs")
-                with ui.expansion("Open the latest pack", icon="description").classes("w-full"):
-                    ui.markdown(exps["pack"]["text"]).classes("markdown-body w-full")
+                pack_text = exps["pack"]["text"]
+                lazy_expansion("Open the latest pack", lambda: ui.markdown(pack_text).classes("markdown-body w-full"),
+                               icon="description")
             else:
                 empty("No research pack yet: the agent writes one every day (or run: python -m tradeagent research-pack).")
             ui.label("Run the research yourself in Claude Code with /research, or turn on the daily run in "
@@ -172,15 +174,19 @@ def build(store: Store) -> None:
 
     with ui.row().classes("w-full gap-4 items-stretch"):
         with card("Research notes", "What was tested and why; written after every research round", classes="flex-[3] min-w-[420px]"):
+            # Each document is rendered only when opened: the lessons alone are some 50 KB of markdown, and building
+            # them made this the slowest page (2026-10-29).
             if data["docs"]:
                 for doc in data["docs"]:
-                    with ui.expansion(doc["title"], icon="article").classes("w-full"):
-                        ui.markdown(doc["text"]).classes("markdown-body w-full")
+                    lazy_expansion(doc["title"], lambda text=doc["text"]: ui.markdown(text).classes("markdown-body w-full"),
+                                   icon="article")
             else:
                 empty("No research notes yet.")
             ui.label("Lessons").classes("card-title mt-2")
             if data["lessons"]:
-                ui.markdown(data["lessons"]).classes("markdown-body")
+                lessons = data["lessons"]
+                lazy_expansion(f"Open the lessons (research/lessons.md, {lessons.count(chr(10) + '## ')} entries)",
+                               lambda: ui.markdown(lessons).classes("markdown-body w-full"), icon="school")
             else:
                 ui.label("No lessons yet: every experiment decision writes one to research/lessons.md.").classes("muted text-sm")
         with card("Decisions", "From docs/REQUIREMENTS.md, newest first", classes="flex-[2] min-w-[320px]"):
@@ -277,14 +283,14 @@ def build(store: Store) -> None:
                 "_order": (0 if e["status"] in ("screening", "running", "reconfirming") else 1, -e["id"]),
             })
         rows.sort(key=lambda r: r.pop("_order"))
-        table.rows = rows
-        table.update()
-        timeline_box.clear()
-        with timeline_box:
-            events = sorted(data["rows"], key=lambda e: -(e["decided_at"] or e["created_at"]))
+        set_rows(table, rows)
+        events = sorted(data["rows"], key=lambda e: -(e["decided_at"] or e["created_at"]))
+        shown = events if timeline_all["on"] else events[:10]
+
+        def timeline_view() -> None:
             if not events:
                 empty("No experiments yet.")
-            for e in events[:40]:
+            for e in shown:
                 with ui.row().classes("w-full items-start gap-3 no-wrap feed-row"):
                     ui.icon(STATUS_ICON[e["status"]], size="20px").classes(
                         "profit" if e["status"] == "promoted" else "loss" if e["status"] in ("lost", "rejected") else "muted")
@@ -296,34 +302,43 @@ def build(store: Store) -> None:
                             ui.label(e["hypothesis"]).classes("text-2 text-xs")
                         if e.get("lesson"):
                             ui.label(e["lesson"].splitlines()[-1]).classes("text-xs")
+            if len(events) > 10:
+                def toggle() -> None:
+                    timeline_all["on"] = not timeline_all["on"]
+                    refresh()
+                ui.button(f"Show all {len(events)}" if not timeline_all["on"] else "Show the newest 10", on_click=toggle).props(
+                    "flat dense no-caps").classes("mt-2")
+        timeline_box.show(tuple((e["id"], e["status"], e["decided_at"], e.get("lesson")) for e in shown)
+                          + (timeline_all["on"], len(events)), timeline_view)
 
         gate = store.gate()
         hist = store.strategy("all")
         status = store.agent_status()
         cov = gate["snapshot_coverage"]
-        strength_box.clear()
-        with strength_box:
-            items = [
-                ("Edge (all history)", rr(hist["expectancy_r"]),
-                 f"95% range {hist['ci'][0]:+.2f} … {hist['ci'][1]:+.2f}R over {hist['trades']} trades" if hist["ci"] else "needs more trades",
-                 hist["ci"] is not None and hist["ci"][0] > 0),
-                ("Edge (forward test)", rr(gate["strategy_expectancy_r"]), f"{gate['strategy_trades']} fresh trades so far",
-                 (gate["strategy_expectancy_r"] or 0) > 0),
-                ("Consistency", pct(hist["positive_windows"], 0) if hist["positive_windows"] is not None else "–",
-                 "of 50-trade stretches ended positive", (hist["positive_windows"] or 0) >= 0.6),
-                ("Data quality", pct(cov), "of expected TradingView reads in the last 7 days", cov >= 0.99),
-                ("Reliability", {"running": "Running", "starting": "Starting", "stalled": "Stalled", "stopped": "Stopped"}[status["state"]],
-                 f"last cycle {ago(status['last_cycle_age_s'])}", status["state"] == "running"),
-                ("Risk (live limits)", pct(gate["live_preview"]["max_drawdown"]),
-                 f"max drawdown of the live preview, target ≤ {pct(store.settings.goal.max_drawdown, 0)}",
-                 gate["live_preview"]["taken"] > 0 and gate["live_preview"]["max_drawdown"] <= store.settings.goal.max_drawdown),
-            ]
+        items = [
+            ("Edge (all history)", rr(hist["expectancy_r"]),
+             f"95% range {hist['ci'][0]:+.2f} … {hist['ci'][1]:+.2f}R over {hist['trades']} trades" if hist["ci"] else "needs more trades",
+             hist["ci"] is not None and hist["ci"][0] > 0),
+            ("Edge (forward test)", rr(gate["strategy_expectancy_r"]), f"{gate['strategy_trades']} fresh trades so far",
+             (gate["strategy_expectancy_r"] or 0) > 0),
+            ("Consistency", pct(hist["positive_windows"], 0) if hist["positive_windows"] is not None else "–",
+             "of 50-trade stretches ended positive", (hist["positive_windows"] or 0) >= 0.6),
+            ("Data quality", pct(cov), "of expected TradingView reads in the last 7 days", cov >= 0.99),
+            ("Reliability", {"running": "Running", "starting": "Starting", "stalled": "Stalled", "stopped": "Stopped"}[status["state"]],
+             f"last cycle {ago(status['last_cycle_age_s'])}", status["state"] == "running"),
+            ("Risk (live limits)", pct(gate["live_preview"]["max_drawdown"]),
+             f"max drawdown of the live preview, target ≤ {pct(store.settings.goal.max_drawdown, 0)}",
+             gate["live_preview"]["taken"] > 0 and gate["live_preview"]["max_drawdown"] <= store.settings.goal.max_drawdown),
+        ]
+
+        def strength_view() -> None:
             for label, value, sub, good in items:
                 with ui.row().classes("w-full items-center gap-3 no-wrap"):
                     ui.icon("check_circle" if good else "pending", size="20px").classes("profit" if good else "muted")
                     ui.label(label).classes("text-sm w-[150px] shrink-0")
                     ui.label(value).classes("text-base font-semibold num w-[90px]")
                     ui.label(sub).classes("muted text-xs")
+        strength_box.show(tuple(items), strength_view)
 
     refresh()
     ui.timer(30.0, refresh)
@@ -331,6 +346,19 @@ def build(store: Store) -> None:
 
 def _r3(v: float | None) -> float | None:
     return None if v is None else round(v, 3)
+
+
+def _history_line(h: dict) -> str:
+    """When a version was adopted and the numbers it was chosen on, where recorded: a promoted experiment has no demo
+    return on its history (promote writes none), and a version switched by hand may have no numbers at all."""
+    parts = [when(h["adopted_at"])]
+    if h.get("trades") is not None:
+        parts.append(f"{h['trades']} trades")
+    if h.get("expectancy_r") is not None:
+        parts.append(f"{rr(h['expectancy_r'])} per trade")
+    if h.get("paper_return_pct") is not None:
+        parts.append(f"demo account {h['paper_return_pct']:+.1f}% on that history")
+    return " · ".join(parts)
 
 
 def _change(change: dict) -> str:

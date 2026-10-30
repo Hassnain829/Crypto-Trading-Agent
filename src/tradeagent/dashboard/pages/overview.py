@@ -6,9 +6,9 @@ from nicegui import ui
 
 from tradeagent.dashboard.data import Store, now_ms
 from tradeagent.dashboard.theme import STATUS
-from tradeagent.dashboard.widgets import (ChartOrEmpty, Tile, ago, card, column, empty, kpi_grid, line_options, money,
-                                          local_time, palette, pct, rr, signed_slot, status_pill, tz_label,
-                                          when)
+from tradeagent.dashboard.widgets import (ChartOrEmpty, Section, Tile, ago, card, column, empty, kpi_grid, line_options,
+                                          local_time, money, palette, pct, rr, set_rows, set_series, signed_slot,
+                                          status_pill, tz_label, when)
 
 FEED_COLORS = {"win": "profit", "loss": "loss", "warning": "", "error": "loss", "open": "", "setting": ""}
 
@@ -34,7 +34,7 @@ def build(store: Store) -> None:
                               "The curve starts with the first closed demo trade.")
         with card("Agent", "Reads TradingView, runs the shadow book and the demo account. The dashboard keeps it "
                   "running and restarts it after a crash.", classes="flex-1 min-w-[300px]"):
-            agent_box = ui.column().classes("w-full gap-2")
+            agent_box = Section(ui.column().classes("w-full gap-2"))
             with ui.row().classes("gap-2"):
                 start_btn = ui.button("Start", icon="play_arrow", on_click=lambda: agent_action("start")).props("outline dense")
                 stop_btn = ui.button("Stop", icon="stop", on_click=lambda: agent_action("stop")).props("outline dense")
@@ -51,19 +51,19 @@ def build(store: Store) -> None:
             ]).classes("w-full").props("flat dense")
             signed_slot(positions, "pnl")
             signed_slot(positions, "r", "R")
-            no_positions = ui.column().classes("w-full")
+            no_positions = Section()
         with ui.column().classes("flex-1 min-w-[300px] gap-4"):
             with card("Today"):
-                today_box = ui.grid(columns=2).classes("w-full gap-3")
+                today_box = Section(ui.grid(columns=2).classes("w-full gap-3"))
             with card("Kill switch", "Stops the demo account (and live trading later). The shadow book keeps learning."):
-                kill_box = ui.column().classes("w-full gap-2")
+                kill_box = Section(ui.column().classes("w-full gap-2"))
 
     with ui.row().classes("w-full gap-4 items-stretch"):
         with card("Activity", "Demo trades, warnings and setting changes", classes="flex-[2] min-w-[420px]"):
-            feed_box = ui.column().classes("w-full gap-0")
+            feed_box = Section(ui.column().classes("w-full gap-0"))
         with card("Data feeds", f"Last TradingView read per chart and the last {store.settings.venue} candle",
                   classes="flex-1 min-w-[300px]"):
-            health_box = ui.column().classes("w-full gap-1")
+            health_box = Section(ui.column().classes("w-full gap-1"))
 
     def confirm_kill(mode: str) -> None:
         texts = {"off": "Resume trading: the demo account takes new signals again.",
@@ -134,68 +134,69 @@ def build(store: Store) -> None:
         t_ready.set(f"{met} / {len(gate['gate'])}", f"day {gate['days_running']:.1f} of {store.settings.goal.min_days}")
 
         curve = store.equity_curve()
-        eq.chart.options["series"][0]["data"] = [[t, round(v, 2)] for t, v in curve]
-        eq.chart.update()
+        set_series(eq.chart, [[t, round(v, 2)] for t, v in curve])  # only a new closed trade redraws the chart
         eq.show(len(curve) > 1)
 
-        positions.rows = [{"id": x["id"], "coin": x["symbol"], "tf": x["timeframe"], "side": x["side"],
-                           "since": when(x["entry_time"]), "entry": f"{x['entry_fill']:g}", "stop": f"{x['stop']:g}",
-                           "target": "", "last": f"{x['last_price']:g}" if x["last_price"] else "–",
-                           "pnl": round(x["unrealized_usd"], 2), "r": round(x["unrealized_r"], 2)} for x in paper["positions"]]
-        positions.update()
+        set_rows(positions, [{"id": x["id"], "coin": x["symbol"], "tf": x["timeframe"], "side": x["side"],
+                              "since": when(x["entry_time"]), "entry": f"{x['entry_fill']:g}", "stop": f"{x['stop']:g}",
+                              "target": "", "last": f"{x['last_price']:g}" if x["last_price"] else "–",
+                              "pnl": round(x["unrealized_usd"], 2), "r": round(x["unrealized_r"], 2)}
+                             for x in paper["positions"]])
         positions.set_visibility(bool(paper["positions"]))
-        no_positions.clear()
-        if not paper["positions"]:
-            with no_positions:
-                empty("No open positions. New signals appear here as soon as the agent takes them.", "inbox")
+        no_positions.show(bool(paper["positions"]), lambda: None if paper["positions"] else empty(
+            "No open positions. New signals appear here as soon as the agent takes them.", "inbox"))
 
-        agent_box.clear()
-        with agent_box:
-            labels = {"running": ("good", "Running"), "starting": ("warning", "Starting"),
-                      "stalled": ("serious", "No cycle for a while"), "stopped": ("critical", "Stopped")}
-            st, text = labels[status["state"]]
-            if status["state"] == "stopped" and status["wanted"] == "stopped":
-                text = "Stopped by you (press Start)"
-            elif status["state"] == "stopped":
-                text = "Stopped: the dashboard starts it again within a minute"
-            elif status["state"] == "starting":  # the first read is at the next 5-minute candle close
-                first_read = (now_ms() // 300_000 + 1) * 300_000
-                text = f"Starting: first read at {local_time(first_read).strftime('%H:%M')}"
+        labels = {"running": ("good", "Running"), "starting": ("warning", "Starting"),
+                  "stalled": ("serious", "No cycle for a while"), "stopped": ("critical", "Stopped")}
+        st, text = labels[status["state"]]
+        if status["state"] == "stopped" and status["wanted"] == "stopped":
+            text = "Stopped by you (press Start)"
+        elif status["state"] == "stopped":
+            text = "Stopped: the dashboard starts it again within a minute"
+        elif status["state"] == "starting":  # the first read is at the next 5-minute candle close
+            first_read = (now_ms() // 300_000 + 1) * 300_000
+            text = f"Starting: first read at {local_time(first_read).strftime('%H:%M')}"
+        beat = status["heartbeat"] or {}
+        offset = beat.get("clock_offset_ms")
+        rows = (("Last cycle", ago(status["last_cycle_age_s"])),
+                ("Snapshots in the last cycle", f"{beat.get('snapshots_ok', 0)}/{beat.get('snapshots', 0)} ok"
+                 if beat else "–"),
+                ("Read latency", f"{beat.get('max_latency_s', 0):.1f} s" if beat else "–"),
+                ("Running since", when(status["started_at"]) if status["state"] != "stopped" else "–"),
+                ("Strategy", f"{store.baseline_version()} ({store.baseline_id or '–'})"),
+                ("RAM / CPU", f"{health['machine']['ram_used_pct']:.0f}% / {health['machine']['cpu_pct']:.0f}%"),
+                ("PC clock vs exchange", "–" if offset is None else f"{-offset / 1000:+.1f} s (corrected)"))
+        clock_off = offset is not None and abs(offset) > 1000
+
+        def agent_view() -> None:
             status_pill(st, text)
-            beat = status["heartbeat"] or {}
-            offset = beat.get("clock_offset_ms")
-            rows = [("Last cycle", ago(status["last_cycle_age_s"])),
-                    ("Snapshots in the last cycle", f"{beat.get('snapshots_ok', 0)}/{beat.get('snapshots', 0)} ok"
-                     if beat else "–"),
-                    ("Read latency", f"{beat.get('max_latency_s', 0):.1f} s" if beat else "–"),
-                    ("Running since", when(status["started_at"]) if status["state"] != "stopped" else "–"),
-                    ("Strategy", f"{store.baseline_version()} ({store.baseline_id or '–'})"),
-                    ("RAM / CPU", f"{health['machine']['ram_used_pct']:.0f}% / {health['machine']['cpu_pct']:.0f}%"),
-                    ("PC clock vs exchange", "–" if offset is None else f"{-offset / 1000:+.1f} s (corrected)")]
             for k, v in rows:
                 with ui.row().classes("w-full justify-between"):
                     ui.label(k).classes("text-2 text-sm")
                     ui.label(v).classes("text-sm num")
-            if offset is not None and abs(offset) > 1000:
+            if clock_off:
                 ui.label("This computer's clock is off by more than a second. The agent corrects for it with "
                          "exchange's server time; turning on Windows time sync keeps the logs exact.").classes("muted text-xs")
-            running = status["state"] != "stopped"
-            start_btn.set_enabled(not running)
-            stop_btn.set_enabled(running)
-            restart_btn.set_enabled(running)
+        agent_box.show((st, text, rows, clock_off), agent_view)
+        running = status["state"] != "stopped"
+        start_btn.set_enabled(not running)  # unchanged values send nothing
+        stop_btn.set_enabled(running)
+        restart_btn.set_enabled(running)
 
-        today_box.clear()
-        with today_box:
-            for label, value in (("Snapshots read", today["snapshots"]), ("Baseline signals", today["signals"]),
-                                 ("Demo opened", today["paper_opened"]), ("Demo closed", today["paper_closed"]),
-                                 ("Shadow trades opened", today["shadow_opened"]), ("Shadow trades closed", today["shadow_closed"])):
+        counts = (("Snapshots read", today["snapshots"]), ("Baseline signals", today["signals"]),
+                  ("Demo opened", today["paper_opened"]), ("Demo closed", today["paper_closed"]),
+                  ("Shadow trades opened", today["shadow_opened"]), ("Shadow trades closed", today["shadow_closed"]))
+
+        def today_view() -> None:
+            for label, value in counts:
                 with ui.column().classes("gap-0"):
                     ui.label(label).classes("kv-key")
                     ui.label(f"{value:,}").classes("text-lg font-semibold num")
+        today_box.show(counts, today_view)
 
         kill = store.kill_switch()
-        kill_box.clear()
-        with kill_box:
+
+        def kill_view() -> None:  # rebuilt only when the switch changes, so a click on these buttons is never lost
             names = {"off": ("good", "Trading"), "pause": ("warning", "Paused: no new entries"),
                      "close_all": ("serious", "Closing everything")}
             status_pill(*names.get(kill, ("idle", kill)))
@@ -205,10 +206,11 @@ def build(store: Store) -> None:
                 ui.button("Pause", icon="pause", on_click=lambda: confirm_kill("pause")).props(
                     "outline dense").set_enabled(kill != "pause")
                 ui.button("Close all", icon="stop", on_click=lambda: confirm_kill("close_all")).props("outline dense color=negative")
+        kill_box.show(kill, kill_view)
 
-        feed_box.clear()
-        with feed_box:
-            items = store.feed()
+        items = store.feed()
+
+        def feed_view() -> None:
             if not items:
                 empty("Nothing yet. Trades and warnings show up here.", "notifications_none")
             for item in items:
@@ -216,21 +218,24 @@ def build(store: Store) -> None:
                     ui.icon(item["icon"], size="18px").classes(FEED_COLORS.get(item["kind"], "") or "muted")
                     ui.label(item["text"]).classes(f"text-sm flex-1 {FEED_COLORS.get(item['kind'], '')}")
                     ui.label(when(item["ts"])).classes("muted text-xs num")
+        feed_box.show(tuple((i["ts"], i["kind"], i["text"]) for i in items), feed_view)
 
-        health_box.clear()
-        with health_box:
-            for c in health["charts"]:
+        charts = tuple((c["symbol"], c["timeframe"], c["status"], ago(c["age_s"])) for c in health["charts"])
+        candles_age = ago(health["binance"]["age_s"])
+
+        def health_view() -> None:
+            for symbol, timeframe, state, age in charts:
                 with ui.row().classes("w-full justify-between items-center"):
                     with ui.row().classes("items-center gap-2"):
                         ui.icon("circle", size="10px").style(
-                            f"color:{STATUS['good'] if c['status'] == 'good' else STATUS['warning'] if c['status'] == 'warning' else p['muted']}")
-                        ui.label(f"{c['symbol']} {c['timeframe']}").classes("text-sm")
-                    ui.label(ago(c["age_s"])).classes("text-sm muted num")
-            b = health["binance"]
+                            f"color:{STATUS['good'] if state == 'good' else STATUS['warning'] if state == 'warning' else p['muted']}")
+                        ui.label(f"{symbol} {timeframe}").classes("text-sm")
+                    ui.label(age).classes("text-sm muted num")
             ui.separator()
             with ui.row().classes("w-full justify-between"):
                 ui.label(f"{store.settings.venue} 1m candles").classes("text-sm")
-                ui.label(ago(b["age_s"])).classes("text-sm muted num")
+                ui.label(candles_age).classes("text-sm muted num")
+        health_box.show((charts, candles_age), health_view)
 
     refresh()
     ui.timer(15.0, refresh)  # the agent writes once per 5-minute cycle; faster refreshes only load the VPS

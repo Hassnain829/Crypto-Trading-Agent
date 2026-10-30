@@ -5,8 +5,9 @@ from __future__ import annotations
 from nicegui import ui
 
 from tradeagent.dashboard.data import Store
-from tradeagent.dashboard.widgets import (ChartOrEmpty, Tile, bar_options, card, chart, column, empty, histogram_options,
-                                          kpi_grid, line_options, money, palette, pct, progress, rr, signed_slot)
+from tradeagent.dashboard.widgets import (ChartOrEmpty, Section, Tile, bar_options, card, chart, column, empty,
+                                          histogram_options, kpi_grid, line_options, money, palette, pct, progress, rr,
+                                          set_options, set_series, signed_slot)
 
 PERIODS = {"forward": "Forward test", "30d": "Last 30 days", "all": "All history"}
 
@@ -45,10 +46,11 @@ def build(store: Store) -> None:
             hist = chart(histogram_options([], [-1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]), "260px")
 
     with card("Breakdowns", "The baseline's shadow trades split by one property at a time", classes="w-full"):
-        breakdown_box = ui.column().classes("w-full")
+        breakdown_box = Section()
+    chosen = {"tab": "Variant"}  # the breakdown tab the user picked: kept when the tables are rebuilt
 
     with card("Go-live gate", "All checks must pass before live trading; you still decide", classes="w-full"):
-        gate_box = ui.column().classes("w-full gap-3")
+        gate_box = Section(ui.column().classes("w-full gap-3"))
 
     def refresh() -> None:
         p = palette()
@@ -69,18 +71,15 @@ def build(store: Store) -> None:
             dd_points.append([ts, round(d, 2)])
         t_dd.set(f"{abs(worst):.1f}%", "largest drop from a high")
         t_fees.set(money(paper["fees"]), "entry and exit fees")
-        eq.chart.options["series"][0]["data"] = [[ts, round(v, 2)] for ts, v in curve]
-        eq.chart.update()
+        set_series(eq.chart, [[ts, round(v, 2)] for ts, v in curve])  # charts redraw only when a trade closed
         eq.show(len(curve) > 1)
         series = dd.chart.options["series"][0]
-        series["data"] = dd_points
         series["lineStyle"]["color"] = series["itemStyle"]["color"] = p["loss"]
         series["areaStyle"] = {"color": p["loss"], "opacity": 0.08}
-        dd.chart.update()
+        set_series(dd.chart, dd_points)
         dd.show(len(curve) > 1)
         days = store.daily_pnl()
-        daily.chart.options.update(bar_options([d for d, _ in days], [round(v, 2) for _, v in days]))
-        daily.chart.update()
+        set_options(daily.chart, bar_options([d for d, _ in days], [round(v, 2) for _, v in days]))
         daily.show(bool(days))
 
         per = period.value
@@ -93,37 +92,41 @@ def build(store: Store) -> None:
                   "profit" if (s["expectancy_r"] or 0) > 0 else "loss" if (s["expectancy_r"] or 0) < 0 else "")
         s_pf.set("–" if s["profit_factor"] is None else f"{s['profit_factor']:.2f}",
                  f"positive in {pct(s['positive_windows'], 0)} of 50-trade windows" if s["positive_windows"] is not None else "")
-        cum.options["series"][0]["data"] = [[ts, round(v, 2)] for ts, v in s["cumulative_r"]]
-        cum.update()
-        hist.options.update(histogram_options(s["r_values"], [-1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]))
-        hist.update()
+        set_series(cum, [[ts, round(v, 2)] for ts, v in s["cumulative_r"]])
+        set_options(hist, histogram_options(s["r_values"], [-1.5, -1, -0.5, 0, 0.5, 1, 1.5, 2]))
 
-        breakdown_box.clear()
-        with breakdown_box:
-            groups = store.breakdowns(per)
-            variants = store.variants()
+        groups = store.breakdowns(per)
+        variants = store.variants()
+        variant_rows = [{"id": v["variant"], "group": v["name"] + (" (baseline)" if v["role"] == "baseline" else ""),
+                         "trades": v["trades"], "win_rate": round((v["win_rate"] or 0) * 100, 1),
+                         "expectancy_r": _round(v["expectancy_r"], 3), "total_r": round(v["total_r"], 1),
+                         "profit_factor": _round(v["profit_factor"], 2), "delta": _round(v["delta_r"], 3)} for v in variants]
+        group_rows = {name: [{"id": g["group"], "group": g["group"], "trades": g["trades"],
+                              "win_rate": round((g["win_rate"] or 0) * 100, 1), "expectancy_r": _round(g["expectancy_r"], 3),
+                              "total_r": round(g["total_r"], 1), "profit_factor": _round(g["profit_factor"], 2)}
+                             for g in items] for name, items in groups.items()}
+
+        def breakdown_view() -> None:
+            names = ["Variant"] + list(group_rows)
             with ui.tabs().props("align=left dense") as tabs:
-                names = ["Variant"] + list(groups)
                 tab_items = {n: ui.tab(n) for n in names}
-            with ui.tab_panels(tabs, value=tab_items["Variant"]).classes("w-full bg-transparent"):
+            tabs.on_value_change(lambda e: chosen.update(tab=e.value))
+            with ui.tab_panels(tabs, value=tab_items.get(chosen["tab"], tab_items["Variant"])).classes(
+                    "w-full bg-transparent"):
                 with ui.tab_panel(tab_items["Variant"]).classes("p-0"):
-                    rows = [{"id": v["variant"], "group": v["name"] + (" (baseline)" if v["role"] == "baseline" else ""),
-                             "trades": v["trades"], "win_rate": round((v["win_rate"] or 0) * 100, 1),
-                             "expectancy_r": _round(v["expectancy_r"], 3), "total_r": round(v["total_r"], 1),
-                             "profit_factor": _round(v["profit_factor"], 2), "delta": _round(v["delta_r"], 3)} for v in variants]
-                    _group_table(rows, with_delta=True)
-                for name, items in groups.items():
+                    _group_table(variant_rows, with_delta=True)
+                for name, rows in group_rows.items():
                     with ui.tab_panel(tab_items[name]).classes("p-0"):
-                        rows = [{"id": g["group"], "group": g["group"], "trades": g["trades"],
-                                 "win_rate": round((g["win_rate"] or 0) * 100, 1), "expectancy_r": _round(g["expectancy_r"], 3),
-                                 "total_r": round(g["total_r"], 1), "profit_factor": _round(g["profit_factor"], 2)} for g in items]
                         if rows:
                             _group_table(rows)
                         else:
                             empty("No trades in this period yet.")
+            tabs.value = chosen["tab"] if chosen["tab"] in tab_items else "Variant"
+        breakdown_box.show((per, repr(variant_rows), repr(group_rows)), breakdown_view)
 
-        gate_box.clear()
-        with gate_box:
+        checks = tuple((c["name"], c["ok"], c["value"], round(c["progress"], 3)) for c in gate["gate"])
+
+        def gate_view() -> None:
             met = sum(1 for c in gate["gate"] if c["ok"])
             ui.label(f"{met} of {len(gate['gate'])} checks met"
                      + (" · GATE MET: ready for your approval" if gate["gate_met"] else "")).classes("text-sm font-semibold")
@@ -135,6 +138,7 @@ def build(store: Store) -> None:
                     with ui.column().classes("flex-1"):
                         progress(c["progress"], c["ok"])
                     ui.label(c["value"]).classes("text-sm num w-[220px] text-right")
+        gate_box.show((checks, gate["gate_met"]), gate_view)
 
     period.on_value_change(lambda _: refresh())
     refresh()

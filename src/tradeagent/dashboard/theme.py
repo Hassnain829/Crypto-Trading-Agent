@@ -48,6 +48,10 @@ def css(mode: str) -> str:
     .muted {{ color: var(--muted); }} .text-2 {{ color: var(--text-2); }}
     .profit {{ color: var(--profit) !important; }} .loss {{ color: var(--loss) !important; }}
     .num {{ font-variant-numeric: tabular-nums; }}
+    #busy-bar {{ position: fixed; top: 0; left: 0; height: 3px; width: 0; z-index: 9999; background: var(--accent);
+                 opacity: 0; pointer-events: none; transition: opacity .15s; }}
+    #busy-bar.on {{ opacity: 1; animation: busy-run 1.1s ease-in-out infinite; }}
+    @keyframes busy-run {{ 0% {{ left: 0; width: 0; }} 50% {{ left: 25%; width: 50%; }} 100% {{ left: 100%; width: 0; }} }}
     .nav-item {{ border-radius: 8px; margin: 2px 8px; color: var(--text-2); }}
     .nav-item.active {{ background: var(--surface-2); color: var(--text); font-weight: 600; }}
     .nav-item:hover {{ background: var(--surface-2); }}

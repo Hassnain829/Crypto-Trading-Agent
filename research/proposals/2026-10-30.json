@@ -1,0 +1,9 @@
+[
+  {
+    "name": "htf_against_4h_v4",
+    "change": { "path": "filters.htf", "value": "against_4h" },
+    "hypothesis": "The pack's htf breakdown on v4 splits by the 4h Zero Lag trend: trades with the 4h trend ('1h and 4h with' 1 trade +0.726R, 'only 4h with' 3 trades -0.187R, PF 0.73, max DD 2.1R) make 4 trades at +0.04R a trade, while trades against it ('1h and 4h against' 3 trades +0.682R, 'only 1h with' 3 trades +1.544R) make 6 trades at about +1.11R. Two of the three stops (#21540 and #21564, SOL shorts) sit in the 4h-with group. The 10-21 note found the same direction on the old history ('trades with the higher-timeframe trend are the weak group, +0.132R'). A 15m Q-Trend flip against the 4h trend is a pullback entry inside a bigger move with room to the 1.5R target, while a flip with an extended 4h trend comes late. This was a setups.yaml challenger on the old baseline and was removed before a decision, so it has never been judged on v4. Prior is weak: the 10-18 round saw the 4h trend flip between periods, which the 3-year long-history screen should expose.",
+    "expected": "Roughly 55-65% of the trades, higher expectancy; it passes only if it is at least 0.05R better with PF not lower, in both halves and on the 3-year long history. Most likely outcome: fails in one half (regime flip), which would close 4h rules on v4.",
+    "confidence": 0.15
+  }
+]

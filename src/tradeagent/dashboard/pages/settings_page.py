@@ -15,8 +15,8 @@ from nicegui import run, ui
 from tradeagent import exchanges
 from tradeagent.config import PaperAccountConfig
 from tradeagent.dashboard.data import Store
-from tradeagent.dashboard.widgets import (ChartOrEmpty, Tile, card, column, line_options, mode, money, pct, status_pill,
-                                          tz_label, when)
+from tradeagent.dashboard.widgets import (ChartOrEmpty, Tile, card, column, line_options, mode, money, pct, set_rows,
+                                          status_pill, tz_label, when)
 from tradeagent.journal.db import now_ms
 from tradeagent.settings_store import GROUPS, EditableField, audit_log, current, reset_value, set_value
 from tradeagent.venues import get_venue
@@ -213,8 +213,12 @@ def live_preview_panel(store: Store, inputs: dict[str, Any]) -> None:
                 ui.notify(f"Invalid limits: {exc}", type="negative", multi_line=True)
                 return
             button.props("loading")
-            result = await run.io_bound(_preview_in_thread, store.defaults.resolve(store.defaults.journal.path),
-                                        store.settings, rules, store.period_start(period.value))
+            settings, since = store.settings, store.period_start(period.value)
+            try:  # in its own process: the replay takes seconds, and in a thread it held up every click (2026-10-29)
+                result = await run.io_bound(store.preview_in_worker, settings, rules, since)
+            except Exception:  # noqa: BLE001 - slower, but the preview still comes
+                result = await run.io_bound(_preview_in_thread, store.defaults.resolve(store.defaults.journal.path),
+                                            settings, rules, since)
             button.props(remove="loading")
             t_result.set(money(result["net_pnl"], sign=True), pct(result["return_pct"] / 100, 1, sign=True)
                          + f" from {money(result['start_balance'])}",
@@ -488,9 +492,8 @@ def audit_panel(store: Store) -> None:
             column("time", f"Time ({tz_label()})"), column("key", "Setting"), column("old", "Old"), column("new", "New"),
             column("source", "Source")]).classes("w-full").props("flat dense")
 
-        def load() -> None:
-            table.rows = [{"id": i, "time": when(r["ts"]), "key": r["key"], "old": r["old_json"], "new": r["new_json"],
-                           "source": r["source"]} for i, r in enumerate(audit_log(store.conn))]
-            table.update()
+        def load() -> None:  # an unchanged log sends nothing
+            set_rows(table, [{"id": i, "time": when(r["ts"]), "key": r["key"], "old": r["old_json"], "new": r["new_json"],
+                              "source": r["source"]} for i, r in enumerate(audit_log(store.conn))])
         load()
         ui.timer(10.0, load)

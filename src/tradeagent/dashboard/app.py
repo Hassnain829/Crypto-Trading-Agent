@@ -27,6 +27,47 @@ NAV = [
 ]
 _store: Store | None = None
 
+# Feedback in the browser itself, before the server answers (on a busy VPS a page takes a second or more to build, and
+# a click that shows nothing looks lost): a clicked menu item is highlighted at once and a thin bar runs at the top
+# until the new page's title is there; after other clicks the bar shows only if the answer takes longer than 0.15 s.
+BUSY_HTML = """
+<div id="busy-bar"></div>
+<script>
+(() => {
+  let page = null, showTimer = null, failsafe = null;
+  const bar = () => document.getElementById('busy-bar');
+  const stop = () => { clearTimeout(showTimer); clearTimeout(failsafe); page = null; bar()?.classList.remove('on'); };
+  const start = (target, delay, maxMs) => {
+    page = target;
+    clearTimeout(showTimer); clearTimeout(failsafe);
+    showTimer = setTimeout(() => bar()?.classList.add('on'), delay);
+    failsafe = setTimeout(stop, maxMs);
+  };
+  const pageShown = () => {
+    if (!page) return;
+    const title = document.querySelector('.page-title');
+    if (title && title.innerText.trim() === page) stop();
+  };
+  document.addEventListener('click', (e) => {
+    const nav = e.target.closest('.nav-item');
+    if (nav) {
+      document.querySelectorAll('.nav-item.active').forEach((x) => x.classList.remove('active'));
+      nav.classList.add('active');
+      start(nav.dataset.page, 0, 20000);
+      return;
+    }
+    if (!page && e.target.closest('.q-btn, .q-tab, .q-toggle, .q-checkbox, tbody tr')) start(null, 150, 3000);
+  }, true);
+  new MutationObserver(() => requestAnimationFrame(pageShown)).observe(document.documentElement, {childList: true, subtree: true});
+  const hook = () => {
+    if (!window.socket) { setTimeout(hook, 200); return; }
+    window.socket.onAny(() => { if (!page) stop(); });  // any answer from the server ends a short wait
+  };
+  hook();
+})();
+</script>
+"""
+
 
 def store() -> Store:
     assert _store is not None, "dashboard store not initialised"
@@ -37,6 +78,7 @@ def root() -> None:
     m = mode()
     p = PALETTES[m]
     ui.add_css(css(m))
+    ui.add_body_html(BUSY_HTML)
     ui.dark_mode(m == "dark")
     ui.colors(primary=p["accent"], positive=STATUS["good"], negative=STATUS["critical"], warning=STATUS["warning"])
     nav_items: dict[str, ui.row] = {}
@@ -59,8 +101,8 @@ def root() -> None:
 
     with ui.left_drawer(value=True, fixed=True).props("width=220 breakpoint=900").classes("pt-3") as drawer:
         for path, label, icon, _ in NAV:
-            with ui.row().classes("nav-item items-center gap-3 px-3 py-2 cursor-pointer no-wrap").on(
-                    "click", lambda _, target=path: ui.navigate.to(target)) as item:
+            with ui.row().classes("nav-item items-center gap-3 px-3 py-2 cursor-pointer no-wrap").props(
+                    f'data-page="{label}"').on("click", lambda _, target=path: ui.navigate.to(target)) as item:
                 ui.icon(icon, size="20px")
                 ui.label(label).classes("text-sm")
             nav_items[path] = item
@@ -94,27 +136,36 @@ def root() -> None:
         ui.sub_pages({**{path: page(path, builder) for path, _, _, builder in NAV}, "/trade/{trade_id}": trade_page,
                       "/settings/{section}": settings_section})
 
+    # Built once and updated in place (it was re-created every 5 s, which flickered and re-sent it each time).
+    with status_box:
+        with ui.element("span").classes("pill"):
+            dot = ui.icon("circle", size="10px")
+            agent_text = ui.label()
+            cycle_tip = ui.tooltip()
+        with ui.element("span").classes("pill") as kill_pill:
+            ui.icon("pause_circle", size="14px").style(f"color:{STATUS['warning']}")
+            kill_text = ui.label()
+    shown: dict[str, str] = {}
+
     def refresh_header() -> None:
         s = store()
         status = s.agent_status()
         kill = s.kill_switch()
-        status_box.clear()
-        with status_box:
-            names = {"running": ("good", "Agent running"), "starting": ("warning", "Agent starting"),
-                     "stalled": ("serious", "Agent stalled"), "stopped": ("critical", "Agent stopped")}
-            st, text = names[status["state"]]
-            if status["state"] == "stopped" and status["wanted"] == "stopped":
-                text = "Agent stopped (by you)"
-            with ui.element("span").classes("pill").tooltip(f"Last cycle {ago(status['last_cycle_age_s'])}"):
-                ui.icon("circle", size="10px").style(f"color:{STATUS[st]}")
-                ui.label(text)
-            if kill != "off":
-                with ui.element("span").classes("pill"):
-                    ui.icon("pause_circle", size="14px").style(f"color:{STATUS['warning']}")
-                    ui.label("Paused" if kill == "pause" else "Closing all")
+        names = {"running": ("good", "Agent running"), "starting": ("warning", "Agent starting"),
+                 "stalled": ("serious", "Agent stalled"), "stopped": ("critical", "Agent stopped")}
+        st, text = names[status["state"]]
+        if status["state"] == "stopped" and status["wanted"] == "stopped":
+            text = "Agent stopped (by you)"
+        if shown.get("dot") != st:  # style() always sends an update, so only on a change
+            dot.style(f"color:{STATUS[st]}")
+            shown["dot"] = st
+        agent_text.set_text(text)  # set_text and set_visibility send nothing when unchanged
+        cycle_tip.set_text(f"Last cycle {ago(status['last_cycle_age_s'])}")
+        kill_pill.set_visibility(kill != "off")
+        kill_text.set_text("Paused" if kill == "pause" else "Closing all")
 
     refresh_header()
-    ui.timer(5.0, refresh_header)
+    ui.timer(10.0, refresh_header)
 
 
 def run(host: str = "127.0.0.1", port: int = 8080, open_browser: bool = True, start_agent: bool = True) -> None:

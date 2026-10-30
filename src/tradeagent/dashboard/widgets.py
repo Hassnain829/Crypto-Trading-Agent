@@ -125,9 +125,108 @@ class Tile:
             self.sub = ui.label("").classes("tile-sub")
 
     def set(self, value: str, sub: str = "", value_tone: str = "") -> None:
-        self.value.set_text(value)
-        self.value.classes(remove="profit loss", add=value_tone)
+        self.value.set_text(value)  # unchanged text sends nothing
+        if value_tone != getattr(self, "_tone", ""):
+            self.value.classes(remove="profit loss", add=value_tone)
+            self._tone = value_tone
         self.sub.set_text(sub)
+
+
+# ---- refreshing without re-creating ----------------------------------------------------------
+_NEVER = object()
+
+
+class Section:
+    """A part of a page that is rebuilt only when the data it shows has changed. Refresh timers call show() with a key
+    of that data: an unchanged key costs nothing, so buttons are not re-created under the mouse (a click on them is not
+    lost), open tooltips and selected tabs stay, and nothing is re-sent to the browser."""
+
+    def __init__(self, container: ui.element | None = None) -> None:
+        self.box = container if container is not None else ui.column().classes("w-full")
+        self._key: Any = _NEVER
+
+    def show(self, key: Any, build: Callable[[], None]) -> bool:
+        if key == self._key:
+            return False
+        self._key = key
+        self.box.clear()
+        with self.box:
+            build()
+        return True
+
+
+def set_rows(table: ui.table, rows: list[dict[str, Any]]) -> bool:
+    """Replace a table's rows only when they changed: a timer refresh with the same rows sends nothing."""
+    if table.rows == rows:
+        return False
+    table.rows = rows
+    table.update()
+    return True
+
+
+def set_series(chart: ui.echart, data: list, index: int = 0) -> bool:
+    """Replace one series' data only when it changed."""
+    series = chart.options["series"][index]
+    if series.get("data") == data:
+        return False
+    series["data"] = data
+    chart.update()
+    return True
+
+
+def set_options(chart: ui.echart, options: dict[str, Any]) -> bool:
+    """Merge new chart options only when they differ from the shown ones."""
+    if all(chart.options.get(k) == v for k, v in options.items()):
+        return False
+    chart.options.update(options)
+    chart.update()
+    return True
+
+
+def lazy_expansion(title: str, build: Callable[[], None], icon: str | None = None, classes: str = "w-full") -> ui.expansion:
+    """An expansion whose content is built the first time it is opened, so a long document costs nothing until then."""
+    expansion = ui.expansion(title, icon=icon).classes(classes)
+    built = False
+
+    def opened(e) -> None:
+        nonlocal built
+        if e.value and not built:
+            built = True
+            with expansion:
+                build()
+    expansion.on_value_change(opened)
+    return expansion
+
+
+def tab_shown(tabs: ui.tabs, tab: ui.tab) -> Callable[[], bool]:
+    """Whether `tab` is the open one: a panel's refresh timer skips its work while another tab is shown."""
+    def shown() -> bool:
+        value = tabs.value
+        return (value.props["name"] if isinstance(value, ui.tab) else value) == tab.props["name"]
+    return shown
+
+
+def lazy_tab_panels(tabs: ui.tabs, panels: list[tuple[ui.tab, Callable[[], None], str]], value: ui.tab) -> ui.tab_panels:
+    """Tab panels whose content is built when its tab is first opened: a page opens with only the visible tab's work
+    done. panels: (tab, builder, classes)."""
+    built: set[str] = set()
+    holders: dict[str, tuple[ui.tab_panel, Callable[[], None]]] = {}
+    with ui.tab_panels(tabs, value=value).classes("w-full bg-transparent") as tab_panels:
+        for tab, build, classes in panels:
+            with ui.tab_panel(tab).classes(classes) as panel:
+                holders[tab._props["name"]] = (panel, build)
+
+    def show(name: Any) -> None:
+        name = name._props["name"] if isinstance(name, ui.tab) else name
+        if name in built or name not in holders:
+            return
+        built.add(name)
+        panel, build = holders[name]
+        with panel:
+            build()
+    show(value)
+    tabs.on_value_change(lambda e: show(e.value))
+    return tab_panels
 
 
 def status_pill(status: str, text: str):

@@ -8,8 +8,8 @@ from nicegui import ui
 
 from tradeagent.dashboard.data import DAY, Store, day_start, now_ms
 from tradeagent.dashboard.rules_text import describe
-from tradeagent.dashboard.widgets import (card, chart, chip_slot, column, empty, kv, money, palette, pct, rr,
-                                          signed_slot, tz_label, when)
+from tradeagent.dashboard.widgets import (card, chart, chip_slot, column, empty, kv, lazy_tab_panels, money, palette,
+                                          pct, rr, set_rows, signed_slot, tab_shown, tz_label, when)
 
 PERIODS = {"today": "Today", "7d": "Last 7 days", "30d": "Last 30 days", "all": "All"}
 
@@ -28,11 +28,11 @@ def build(store: Store) -> None:
         tab_paper = ui.tab("Demo account", icon="account_balance_wallet")
         tab_shadow = ui.tab("Shadow book (all variants)", icon="science")
         ui.tab("Live", icon="bolt").props("disable").tooltip("Phase 6")
-    with ui.tab_panels(tabs, value=tab_paper).classes("w-full bg-transparent"):
-        with ui.tab_panel(tab_paper).classes("p-0 gap-3"):
-            paper_view(store, choices)
-        with ui.tab_panel(tab_shadow).classes("p-0 gap-3"):
-            shadow_view(store, choices)
+
+    # The shadow book (up to 500 rows) is built only when its tab is opened, and each tab refreshes only while shown.
+    lazy_tab_panels(tabs, [(tab_paper, lambda: paper_view(store, choices, tab_shown(tabs, tab_paper)), "p-0 gap-3"),
+                           (tab_shadow, lambda: shadow_view(store, choices, tab_shown(tabs, tab_shadow)), "p-0 gap-3")],
+                    tab_paper)
 
 
 def _filters(choices: dict[str, list[str]], variant: bool) -> dict[str, Any]:
@@ -62,7 +62,7 @@ def _summary(label: ui.label, rows: list[dict[str, Any]], pnl: bool) -> None:
     label.set_text(text)
 
 
-def paper_view(store: Store, choices: dict[str, list[str]]) -> None:
+def paper_view(store: Store, choices: dict[str, list[str]], visible=lambda: True) -> None:
     f = _filters(choices, variant=False)
     rejected = ui.switch("Show skipped signals", value=False).props("dense")
     summary = ui.label().classes("text-2 text-sm")
@@ -84,17 +84,16 @@ def paper_view(store: Store, choices: dict[str, list[str]]) -> None:
             r.update(time_text=when(r["time"]), entry=_p(r["entry"]), stop=_p(r["stop"]), target=_p(r["target"]),
                      r=None if r["r"] is None else round(r["r"], 2), pnl=None if r["pnl"] is None else round(r["pnl"], 2),
                      fees=None if r["fees"] is None else round(r["fees"], 2))
-        table.rows = rows
-        table.update()
+        set_rows(table, rows)  # an unchanged refresh sends nothing and keeps the table where it is
         _summary(summary, [r for r in rows if r["status"] != "rejected"], pnl=True)
 
     for el in (*f.values(), rejected):
         el.on_value_change(lambda _: load())
     load()
-    ui.timer(15.0, load)
+    ui.timer(15.0, lambda: visible() and load())
 
 
-def shadow_view(store: Store, choices: dict[str, list[str]]) -> None:
+def shadow_view(store: Store, choices: dict[str, list[str]], visible=lambda: True) -> None:
     f = _filters(choices, variant=True)
     summary = ui.label().classes("text-2 text-sm")
     table = ui.table(rows=[], row_key="id", pagination=15, columns=[
@@ -112,14 +111,13 @@ def shadow_view(store: Store, choices: dict[str, list[str]]) -> None:
         for r in rows:
             r.update(time_text=when(r["time"]), entry=_p(r["entry"]), stop=_p(r["stop"]), target=_p(r["target"]),
                      r=None if r["r"] is None else round(r["r"], 2))
-        table.rows = rows
-        table.update()
+        set_rows(table, rows)
         _summary(summary, rows, pnl=False)
 
     for el in f.values():
         el.on_value_change(lambda _: load())
     load()
-    ui.timer(30.0, load)
+    ui.timer(30.0, lambda: visible() and load())
 
 
 def _p(v: float | None) -> str:

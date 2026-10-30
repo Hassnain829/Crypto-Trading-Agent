@@ -12,6 +12,8 @@ import math
 import re
 import sqlite3
 import statistics
+import subprocess
+import sys
 import threading
 import time
 from collections import defaultdict
@@ -36,6 +38,8 @@ log = logging.getLogger("tradeagent.dashboard")
 
 DAY = 86_400_000
 SLOW_REBUILD_S = 300  # the variants and the gate take seconds to build; the agent adds trades once every 5 minutes
+SLOW_MAX_AGE_S = 1800  # rebuilt at least this often even when no trade closed (days running, today's numbers)
+WORKER_TIMEOUT_S = 600
 
 
 def now_ms() -> int:
@@ -69,6 +73,7 @@ class Store:
         self._lock = threading.Lock()
         self._running: dict[str, threading.Event] = {}
         self._slow_keys: set[str] = set()
+        self._versions: dict[str, tuple[Any, float]] = {}  # report -> (journal version, monotonic time) of its newest build
         self.supervisor: Supervisor | None = None  # set by the app: starts and stops the agent process
 
     # ---- helpers -----------------------------------------------------------------------------
@@ -80,40 +85,70 @@ class Store:
         self._cache[key] = (time.monotonic(), value)
         return value
 
-    def cached_slow(self, key: str, seconds: float, fn: Callable[[sqlite3.Connection], Any]) -> Any:
-        """A slow report (seconds on a large journal: the gate's account replay, the variant report). It is rebuilt
-        in a worker thread with its own connection when older than `seconds`, and pages get the newest finished one
-        at once, so the event loop (and every click in the dashboard) never waits for it. Only a call before the
-        very first build finished waits for that build."""
+    def cached_slow(self, key: str, seconds: float, fn: Callable[[sqlite3.Connection], Any],
+                    worker: tuple[str, Settings | None] | None = None) -> Any:
+        """A slow report (seconds on a large journal: the gate's account replay, the variant report). Pages get the
+        newest finished one at once; only a call before the very first build finished waits for that build.
+
+        With `worker` (the report's name for slow_reports.py and the settings it needs), it is built in its own process
+        at below-normal priority: in a thread of this process it held Python's lock for those seconds, and every click in
+        the browser waited (2026-10-29). It is then rebuilt only when the journal changed (journal_version) or the
+        report is older than SLOW_MAX_AGE_S; it is checked every `seconds`. Without `worker` it is rebuilt in a thread
+        whenever it is older than `seconds`."""
         hit = self._cache.get(key)
-        if hit is None or time.monotonic() - hit[0] >= seconds:
-            done = self._rebuild(key, fn)
-            if hit is None:
-                done.wait(timeout=180)
-                hit = self._cache.get(key)
-                if hit is None:  # the worker failed: build it here once (and show the error like any other)
-                    value = fn(self.conn)
-                    self._cache[key] = (time.monotonic(), value)
-                    return value
+        if hit is not None and time.monotonic() - hit[0] < seconds:
+            return hit[1]
+        if hit is not None and worker is not None and self._unchanged(key):
+            self._cache[key] = (time.monotonic(), hit[1])  # nothing new in the journal: look again in `seconds`
+            return hit[1]
+        done = self._rebuild(key, fn, worker)
+        if hit is None:
+            done.wait(timeout=180)
+            hit = self._cache.get(key)
+            if hit is None:  # the build failed: build it here once (and show the error like any other)
+                value = fn(self.conn)
+                self._cache[key] = (time.monotonic(), value)
+                return value
         return hit[1]
 
-    def _rebuild(self, key: str, fn: Callable[[sqlite3.Connection], Any]) -> threading.Event:
+    def journal_version(self) -> tuple:
+        """What the slow reports depend on, read in about a millisecond: the newest closed trade (an index lookup), the
+        demo account's trades, the variants, the baseline and the newest setting change."""
+        return (self.one("SELECT max(exit_time) FROM trades WHERE book = 'exploration'"),
+                self.one("SELECT count(*) FROM account_trades"),
+                self.one("SELECT count(*) FROM account_trades WHERE status = 'closed'"),
+                self.one("SELECT count(*) FROM variants"), self.baseline_id,
+                self.one("SELECT max(id) FROM settings_audit"))
+
+    def _unchanged(self, key: str) -> bool:
+        built = self._versions.get(key)
+        return built is not None and built[0] == self.journal_version() and time.monotonic() - built[1] < SLOW_MAX_AGE_S
+
+    def _rebuild(self, key: str, fn: Callable[[sqlite3.Connection], Any],
+                 worker: tuple[str, Settings | None] | None = None) -> threading.Event:
         self._slow_keys.add(key)
         with self._lock:
             running = self._running.get(key)
             if running is not None:
                 return running
             done = self._running[key] = threading.Event()
+        version = self.journal_version() if worker is not None else None  # before the build: a change during it counts
 
         def work() -> None:
-            conn = sqlite3.connect(self._path, timeout=30)
-            conn.row_factory = sqlite3.Row
             try:
-                self._cache[key] = (time.monotonic(), fn(conn))
+                if worker is None:
+                    value = self._build_here(fn)
+                else:
+                    try:
+                        value = self._build_in_worker(*worker)
+                    except Exception:  # noqa: BLE001 - slower, but the page still gets its report
+                        log.exception("dashboard: building %s in its own process failed; building it here", key)
+                        value = self._build_here(fn)
+                    self._versions[key] = (version, time.monotonic())
+                self._cache[key] = (time.monotonic(), value)
             except Exception:  # noqa: BLE001 - the page falls back to building it itself
                 log.exception("dashboard: building %s failed", key)
             finally:
-                conn.close()
                 with self._lock:
                     self._running.pop(key, None)
                 done.set()
@@ -121,15 +156,38 @@ class Store:
         threading.Thread(target=work, name=f"dashboard-{key}", daemon=True).start()
         return done
 
+    def _build_here(self, fn: Callable[[sqlite3.Connection], Any]) -> Any:
+        conn = sqlite3.connect(self._path, timeout=30)
+        conn.row_factory = sqlite3.Row
+        try:
+            return fn(conn)
+        finally:
+            conn.close()
+
+    def _build_in_worker(self, report: str, settings: Settings | None, **extra: Any) -> Any:
+        """One slow report from its own process (python -m tradeagent.dashboard.slow_reports) at below-normal priority.
+        This process only waits on the pipe, so its event loop keeps answering clicks."""
+        job = {"journal": str(self._path), "root": str(self.defaults.root),
+               "settings": json.loads(settings.model_dump_json()) if settings is not None else None, **extra}
+        flags = subprocess.BELOW_NORMAL_PRIORITY_CLASS | subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+        done = subprocess.run([sys.executable, "-m", "tradeagent.dashboard.slow_reports", report], input=json.dumps(job),
+                              capture_output=True, text=True, encoding="utf-8", errors="replace",
+                              timeout=WORKER_TIMEOUT_S, creationflags=flags, cwd=str(self.defaults.root))
+        if done.returncode != 0:
+            raise RuntimeError(f"slow report {report} exited {done.returncode}: {done.stderr.strip()[-1500:]}")
+        return json.loads(done.stdout)
+
     def warm_up(self) -> None:
         """Start the slow reports when the dashboard starts, so the first page does not wait for them."""
         settings = self.settings
-        self._rebuild("gate", lambda conn: account_report(conn, settings))
-        self._rebuild("variants", self._variants)
+        self._rebuild("gate", lambda conn: account_report(conn, settings), ("gate", settings))
+        self._rebuild("variants", self._variants, ("variants", None))
 
     def invalidate(self) -> None:
-        # The slow reports stay on show until their rebuild is done (marked old, not dropped).
+        # The slow reports stay on show until their rebuild is done (marked old, not dropped), and are rebuilt at the
+        # next look even if no trade closed (a setting or the kill switch changed).
         self._cache = {k: (0.0, hit[1]) for k, hit in self._cache.items() if k in self._slow_keys}
+        self._versions.clear()
 
     @property
     def settings(self) -> Settings:
@@ -279,6 +337,10 @@ class Store:
                       " AND entry_time >= ? ORDER BY entry_time", (self.baseline_id, since or 0))
 
     def strategy(self, period: str) -> dict[str, Any]:
+        # A quarter of a second on the full history (every baseline trade with its context); pages refresh it often.
+        return self.cached(f"strategy:{period}", 60, lambda: self._strategy(period))
+
+    def _strategy(self, period: str) -> dict[str, Any]:
         since = self.period_start(period)
         rows = self.baseline_trades(since)
         r = [t["r_net"] for t in rows]
@@ -309,6 +371,9 @@ class Store:
         return None
 
     def breakdowns(self, period: str) -> dict[str, list[dict[str, Any]]]:
+        return self.cached(f"breakdowns:{period}", 60, lambda: self._breakdowns(period))
+
+    def _breakdowns(self, period: str) -> dict[str, list[dict[str, Any]]]:
         rows = self.baseline_trades(self.period_start(period))
         groups: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
         for t in rows:
@@ -344,17 +409,23 @@ class Store:
         return rows
 
     def variants(self) -> list[dict[str, Any]]:
-        # Every variant's statistics over all its trades: seconds on a large journal, so built off the event loop.
-        # Trades change once a cycle (5 minutes); a rebuild holds Python's lock for seconds and slows every page.
-        return self.cached_slow("variants", SLOW_REBUILD_S, self._variants)
+        # Every variant's statistics over all its trades: seconds on a large journal, so built in its own process and
+        # only when a trade closed.
+        return self.cached_slow("variants", SLOW_REBUILD_S, self._variants, ("variants", None))
 
     def gate(self) -> dict[str, Any]:
         # The report replays the demo account (seconds on a large journal); the gate changes slowly.
-        settings = self.settings  # resolved here: the worker thread must not use this thread's connection
-        return self.cached_slow("gate", SLOW_REBUILD_S, lambda conn: account_report(conn, settings))
+        settings = self.settings  # resolved here: the build must not use this thread's connection
+        return self.cached_slow("gate", SLOW_REBUILD_S, lambda conn: account_report(conn, settings), ("gate", settings))
 
     def preview(self, rules: PaperAccountConfig, period: str) -> dict[str, Any]:
         return live_preview(self.conn, self.settings, rules, since=self.period_start(period))
+
+    def preview_in_worker(self, settings: Settings, rules: PaperAccountConfig, since: int | None) -> dict[str, Any]:
+        """The Settings page's live preview from its own process (the account replay takes seconds and held Python's
+        lock in a thread). Call it from a thread (run.io_bound), with the settings read on the event loop: it only
+        waits for the worker."""
+        return self._build_in_worker("preview", settings, rules=rules.model_dump(mode="json"), since=since)
 
     # ---- activity ----------------------------------------------------------------------------
     def today(self) -> dict[str, Any]:
